@@ -1,0 +1,78 @@
+{
+  "results": {
+    "site:stan.store (\"online coach\" OR \"coaching\") {metro_term}||NYC||Brooklyn": [
+      {
+        "title": "Devon Cruz Coaching — Stan Store",
+        "link": "https://stan.store/devoncruzfit",
+        "snippet": "1:1 Online Coaching — $319/mo. Brooklyn-based, clients worldwide. DM 'READY' on Instagram to apply."
+      },
+      {
+        "title": "Harlem Strong Coaching | Stan",
+        "link": "https://stan.store/harlemstrong",
+        "snippet": "Online strength coaching from Harlem NYC. 12-Week Program $749. Limited spots."
+      }
+    ],
+    "site:stan.store (fitness OR \"personal trainer\") {metro_term}||NYC||Manhattan": [
+      {
+        "title": "Devon Cruz Coaching — Stan Store",
+        "link": "https://stan.store/devoncruzfit",
+        "snippet": "1:1 Online Coaching — $319/mo. Brooklyn-based, clients worldwide. DM 'READY' on Instagram to apply."
+      },
+      {
+        "title": "Fuel & Form Nutrition | Stan Store",
+        "link": "https://stan.store/fuelandform",
+        "snippet": "Macro coaching by Lena — NYC. Monthly coaching $189/mo. Comment FUEL on my latest post."
+      }
+    ],
+    "site:linktr.ee \"online fitness coach\" {metro_term}||Miami||South Florida": [
+      {
+        "title": "Marco Reyes | Linktree",
+        "link": "https://linktr.ee/marcoreyesfit",
+        "snippet": "Miami online fitness coach. Apply for 1:1 coaching. Free macro guide."
+      },
+      {
+        "title": "The Sculpt Studio | Linktree",
+        "link": "https://linktr.ee/sculptstudiomia",
+        "snippet": "Boutique pilates studio in Wynwood. Book classes online."
+      }
+    ],
+    "site:instagram.com \"online coach\" \"{metro_term}\" (\"comment\" OR \"DM me\")||NYC||Queens": [
+      {
+        "title": "Priya Raman (@nyc.lift.coach) • Instagram",
+        "link": "https://www.instagram.com/nyc.lift.coach/",
+        "snippet": "Online strength coach · NYC. 1:1 remote programming · 2 spots open — DM me SPOTS."
+      },
+      {
+        "title": "Jordan Vega (@jordanvega.coach) • Instagram",
+        "link": "https://www.instagram.com/jordanvega.coach/",
+        "snippet": "Queens online coach for busy dads. Comment DAD1 for the free plan. DM me to apply."
+      },
+      {
+        "title": "NYC fitness reel • Instagram",
+        "link": "https://www.instagram.com/reel/Cxyz12345/",
+        "snippet": "The best online coach workflow — comment TOOLS for my full stack."
+      }
+    ],
+    "\"1:1 coaching\" fitness \"{metro_term}\" (\"stan.store\" OR \"linktr.ee\")||Fort Lauderdale||Boca Raton": [
+      {
+        "title": "Ash Carter Fitness — links",
+        "link": "https://linktr.ee/ashcarterfit",
+        "snippet": "Fort Lauderdale. 1:1 coaching applications open — stan.store checkout. DM 'COACH'."
+      },
+      {
+        "title": "Peak Physique HQ",
+        "link": "https://peakphysiquehq.com/coaching",
+        "snippet": "1:1 coaching in Boca Raton and online. From $500/mo."
+      }
+    ]
+  },
+  "pages": {
+    "https://stan.store/devoncruzfit": "Devon Cruz Coaching. Brooklyn NYC based, coaching clients everywhere. 1:1 Online Coaching — $319/mo: custom programming, weekly check-ins, unlimited DM support Monday to Saturday. 12-Week Transformation — $849 paid in full. How to start: DM the word READY to me on Instagram at instagram.com/devoncruzfit and I will send the application. I answer every DM myself. Payment plans via Klarna. Testimonials: 'Devon changed how I train forever' — Marcus T. 'Down 19lb, deadlift up 60lb' — Sofia R. 'Worth every dollar' — J.P. Free guide: The Busy New Yorker's Meal Prep Framework — grab it below. Also on TikTok: tiktok.com/@devoncruzfit for daily training clips. Contact: coaching inquiries via Instagram DM only. Devon Cruz, CSCS. Brooklyn, New York.",
+    "https://stan.store/harlemstrong": "Harlem Strong Coaching by Andre Wallace. Online strength coaching rooted in Harlem, NYC. 12-Week Strength Program — $749: full programming, form review via video, weekly calls. Monthly Coaching — $249/mo. Apply: DM 'STRONG' on Instagram — instagram.com/harlemstrong.andre — applications reviewed personally. Free: 5 mobility drills for desk workers. Venmo and card accepted. 'Andre rebuilt my squat from zero after injury' — Keisha L. 'The most attentive coach I have had' — Tom B. Harlem, New York City. Online worldwide.",
+    "https://stan.store/fuelandform": "Fuel and Form Nutrition by Lena Ortiz, NYC. Macro coaching for lifters. Monthly Coaching — $189/mo: custom macros, weekly adjustments, DM support. Mini Cut Protocol — $99. Comment FUEL on my latest Instagram post or DM me at instagram.com/fuelandform.lena to start. Free download: Protein First — a renters-kitchen cookbook. Based in Astoria, NYC. Online everywhere. Payments by Stripe.",
+    "https://linktr.ee/marcoreyesfit": "Marco Reyes Fitness — Miami. Apply for 1:1 Online Coaching: fill the application form, then we talk in your Instagram DMs before anything is charged — I review every application myself, usually within a day. Coaching $279/mo, 16-week minimum: custom training blocks, nutrition coaching with weekly adjustments, video form review, and DM support Monday through Friday. Free Macro Starter Guide — the exact targets my clients begin with. Client results gallery: thirty-plus transformations from Brickell to Kendall. Instagram: instagram.com/marcoreyes.fit — TikTok: tiktok.com/@marcoreyesfit. Podcast: guest on Lifting Culture ep. 74. Discovery calls via Calendly if you prefer talking first. Based in Miami FL — coaching clients across South Florida and worldwide.",
+    "https://linktr.ee/sculptstudiomia": "The Sculpt Studio — Wynwood, Miami. Boutique reformer pilates. Book a class. New client intro pack $89. Gift cards. Instructor hiring. Follow us at instagram.com/sculptstudiomia. Studio address: NW 24th St, Miami FL. Powered by Mindbody scheduling.",
+    "https://linktr.ee/ashcarterfit": "Ash Carter Fitness — Fort Lauderdale, FL. 1:1 Coaching applications OPEN: $259/mo with a 12-week minimum commitment — programming, macros, weekly check-in videos, and direct DM access to me, not an assistant. Checkout runs on stan.store/ashcarterfit; Klarna available for paid-in-full blocks. To apply: DM the word 'COACH' on Instagram — instagram.com/ashcarter.fit — and I will send the three-question application. Free: the Beach Circuit PDF, six no-equipment sessions for Florida summers. Results: 'Ash got me stage ready in 20 weeks' — Danielle M. 'First coach who actually adjusted things weekly' — Rob T. Fort Lauderdale based, online everywhere.",
+    "https://peakphysiquehq.com/coaching": "Peak Physique HQ — Coaching Programs. 1:1 coaching in our Boca Raton facility and online from $500/mo. Our coaching team of six certified professionals covers strength, physique prep, and nutrition periodization. Corporate wellness packages for South Florida offices. Semi-private training available at the facility, Monday through Saturday. Book a consultation through our front desk or the form below — our coordinator will match you with the right coach on the team. Located on Glades Road, Boca Raton, FL. Parking validated. Follow the gym page for schedule updates and team announcements."
+  }
+}

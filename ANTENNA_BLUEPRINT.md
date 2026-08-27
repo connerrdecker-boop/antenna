@@ -18,9 +18,19 @@
 | Campaign | NYC + South Florida first · goal 20–25 signed LOIs, ≥8–10 at tier T2/T3 · **Ashok's gate stays 10** |
 | Budget | Hard cap **$250** total external spend, enforced in code |
 | Timeline | A1–A2 evenings post-Friday · A3 weekend · A4 (hour of truth) before wave one · wave one launches after Christopher confirms |
-| Build state | **A1 shipped** · **A2 build half shipped + ratified** (calibration + golden set pending) · A3–A4 not started |
+| Build state | **A1 shipped** · **A2 build half shipped + ratified** (calibration + golden set pending) · **A3 build half shipped** (real providers await keys + ratified libraries) · A4: /metrics pulled forward, export + measured run remain |
 
 ## Phase log
+
+**A3 — Harvest, build half · 2026-08-27 · shipped; real providers await keys + ratified libraries.** Deviations and DRAFT configs below are PENDING ratification.
+
+*Delivered*: the Part IV adapter contract with all three adapters — 4a seller-exhaust (query library over metros, ≤5 pages, URL-dedupe, page resolution, handle/offer/price/tell extraction), 4b hashtag mining (actor-class, bios + follower counts arrive with the seed and write Observatory snapshots), 4c commenters (halts by canon design while the seed list is empty) · `lib/fetchLink.ts` to spec (1 req/s, 10s timeout, <500 chars ⇒ failed, never blocks) with a **Law 3 hard refusal of Instagram hosts** · ingest with in-run + cross-run dedupe, provenance stamping, harvest_runs + spend rows, budget gated BEFORE provider work · every external service behind fixture/real providers — fixture runs the whole flow offline tonight; real stubs halt naming their exact ask (SERPER_API_KEY / APIFY_TOKEN) and refuse to spend while libraries are DRAFT · `/settings` (estimate BEFORE confirm, run log, key presence, DRAFT gates, spend vs caps, run ledger) · `/metrics` per 8.4 pulled forward from A4 (per-source qualification, funnel, cost per qualified, DMs/day, reply rate — live data, honest em-dashes).
+
+*DRAFT configs awaiting red-pen (Part XV.8)*: `config/queries.ts` (the canon 4a starter set, transcribed verbatim; check asserts it matches Part 4a exactly) · `config/hashtags.ts` (the 4b starter list) · `config/seeds.ts` (empty by canon: "leave list empty; I fill it"). `npm run check` asserts the DRAFT markers exist until ratification; real providers refuse to spend while they do.
+
+*Pipeline routing refinement*: prescore eligibility = bio OR link_domain (a stan.store domain alone is signal; serper-sourced rows go through the cheap filter first, as the spine intends); bootstrap enrichment narrowed to rows with neither (manual adds); an existing pre-score always rules the enrich gate, so a killed serper row can never sneak in through the bootstrap door.
+
+*Verification*: 87 db-suite check assertions (new section 13: DRAFT gates, Part 4a template fidelity, Law 3 predicate, extraction probes, run-ledger integrity; serp/actors cap halts join section 12) · 14-assertion fetchLink unit vs a loopback server (`npm run test:fetchlink`) · 15-assertion browser E2E over /settings + /metrics · fixture harvest → dedupe (in-run, cross-run, cross-adapter) → prescore pickup proven live · all halt paths exercised (DRAFT gates, both keys, empty seed list, serp/actors/total caps).
 
 **A2 — Score + Ratify, build half · 2026-08-27 · shipped and RATIFIED; calibration awaits the operator.** Commits: `18e2385` build half · `+ A2 ratifications + canon update`.
 

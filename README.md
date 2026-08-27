@@ -25,11 +25,12 @@ wall at all.
 |---|---|---|
 | **A1** | Spine + Track — schema, `/pipeline`, `/add`, check suite, backup | ✅ built |
 | **A2** | Score + Ratify — pipeline, prompts, few-shot loop, `/ratify` | ✅ build half done · calibration + golden set pending |
-| A3 | Harvest adapters | not started |
-| A4 | Metrics + the measured run | not started |
+| **A3** | Harvest — adapters, `/settings`, `/metrics` (pulled forward) | ✅ build half done · real providers await keys + ratified libraries |
+| A4 | Export + the measured run | not started |
 
-Routes for later phases (`/metrics`, `/settings`) are shown greyed in the nav so the cockpit's
-shape is legible; they are not built yet.
+All five canon routes are live. Real harvest providers are stubs that halt naming their exact
+ask; fixture providers run the whole flow offline. The query/hashtag/seed configs are DRAFT —
+`npm run check` asserts the markers until the operator ratifies them.
 
 ## Setup
 
@@ -68,7 +69,9 @@ for the calibration run).
 | `npm run check:golden` | Scoring regression (Part 6.6). PENDING until A2. |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run backup` | Timestamped copy to `~/Backups/antenna/` |
-| `npm run pipeline` | Enrich → pre-score → score everything `sourced`. `-- --provider=actor` halts until A3. |
+| `npm run pipeline` | Enrich → pre-score → score everything `sourced`. `-- --provider=actor` halts until A3 wiring. |
+| `npm run harvest` | Run an adapter: `-- --adapter=serper\|hashtags\|commenters --metro=nyc\|sofla [--provider=real]` |
+| `npm run test:fetchlink` | fetchLink unit test vs a loopback server (Law 3 refusal, rate limit, timeout, JS-shell rule) |
 | `npm run db:generate` | Generate a migration after editing `db/schema.ts` |
 
 **Never hand-edit the database.** Change `db/schema.ts`, run `npm run db:generate`, then

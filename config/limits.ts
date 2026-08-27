@@ -16,6 +16,23 @@ export const CAPS = {
 /** Enrich runs only on candidates at or above this pre-score (Part V). */
 export const PRESCORE_THRESHOLD = 40
 
+/**
+ * Harvest cost rates, USD — mid-points of the Part 2.5b ranges (Serper
+ * ~$1/1K searches; actors ~$1–3/1K profiles). Used for the pre-run estimate
+ * shown BEFORE confirm (/settings) and the pre-call budget gate; ACTUAL spend
+ * is written from provider receipts once the real providers are wired.
+ */
+export const HARVEST_COST = {
+  serpPerQuery: 0.001,
+  actorPerItem: 0.002,
+} as const
+
+/**
+ * Part 4b canon: the real actor must be SMOKE-TESTED with a <= $2 run, and the
+ * operator shown results, before any scale run.
+ */
+export const ACTOR_SMOKE_TEST_CAP = 2
+
 /** Tier cuts (Part 6.2 RULES). */
 export const TIER_CUTS = { A: 75, B: 55, C: 40 } as const
 

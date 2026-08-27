@@ -6,13 +6,12 @@ const LIVE = [
   { href: '/ratify', label: 'Ratify' },
   { href: '/pipeline', label: 'Pipeline' },
   { href: '/add', label: 'Add' },
+  { href: '/metrics', label: 'Metrics' },
+  { href: '/settings', label: 'Settings' },
 ]
 
-/** Routes the blueprint reserves for later phases — shown so the cockpit's shape is legible. */
-const PLANNED = [
-  { label: 'Metrics', phase: 'A4' },
-  { label: 'Settings', phase: 'A3' },
-]
+/** Every canon route is live as of A3 (metrics ahead of schedule, per operator). */
+const PLANNED: { label: string; phase: string }[] = []
 
 export function Nav() {
   const pathname = usePathname()

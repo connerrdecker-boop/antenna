@@ -15,10 +15,15 @@ import {
 } from '@/db/enums'
 import { ENFORCEMENT_TRIGGERS } from '@/db/enforcement'
 import { listCandidates } from '@/db/repo'
+import { HASHTAG_LIBRARY_STATUS } from '@/config/hashtags'
 import { METRO_TERMS } from '@/config/metros'
+import { QUERY_LIBRARY_STATUS, QUERY_TEMPLATES } from '@/config/queries'
+import { SEED_LIST_STATUS } from '@/config/seeds'
 import { normalizeLinkUrl } from '@/lib/handle'
 import { TRANSITIONS } from '@/lib/status'
+import { extractHandles, extractPlatformTells, extractPrices } from '@/pipeline/harvest/extract'
 import { ensureBudget } from '@/pipeline/lib/budget'
+import { isFetchableUrl } from '@/pipeline/lib/fetchLink'
 import { renderScorePrompt, SCORE_PROMPT_VERSION } from '@/pipeline/score'
 import { buildFewShotBlock } from '@/prompts/fewshot'
 import { runMigrations } from './migrate'
@@ -476,8 +481,84 @@ section('12. budget caps live in code and halt (Law 6, Part X)')
   spendRow.run(at, 'actors', CAPS.total - 0.01, 'check', 'simulated ledger overage')
   const totalHalt = halted(() => ensureBudget('llm', 0.05, p))
   assert('total campaign cap halts as the backstop', totalHalt !== null && totalHalt.includes(String(CAPS.total)), totalHalt ?? 'no halt')
+
+  // A3: the harvest categories halt the same way (serp $25 / actors $100).
+  p.exec('DELETE FROM spend')
+  spendRow.run(at, 'serp', CAPS.serp - 0.005, 'check', 'fill serp cap')
+  const serpHalt = halted(() => ensureBudget('serp', 0.01, p))
+  assert('serp category cap halts a harvest run', serpHalt !== null && serpHalt.includes('BUDGET HALT'), serpHalt ?? 'no halt')
+  p.exec('DELETE FROM spend')
+  spendRow.run(at, 'actors', CAPS.actors - 0.005, 'check', 'fill actors cap')
+  const actorsHalt = halted(() => ensureBudget('actors', 0.01, p))
+  assert('actors category cap halts a harvest run', actorsHalt !== null && actorsHalt.includes('BUDGET HALT'), actorsHalt ?? 'no halt')
   p.close()
   for (const suffix of ['', '-wal', '-shm']) rmSync(probePath + suffix, { force: true })
+}
+
+// 13. Harvest (A3): DRAFT gates, Law 3, extraction, run-ledger integrity.
+section('13. harvest — DRAFT gates, Law 3, extraction, ledger (Part IV / XV.8)')
+{
+  // Part XV.8: the starter libraries are red-penned before A3 runs them. Until
+  // ratified, the DRAFT marker must exist in each config AND the real
+  // providers must refuse. When ratification happens these assertions flip.
+  for (const [file, marker] of [
+    ['config/queries.ts', QUERY_LIBRARY_STATUS],
+    ['config/hashtags.ts', HASHTAG_LIBRARY_STATUS],
+    ['config/seeds.ts', SEED_LIST_STATUS],
+  ] as const) {
+    assert(`${file} carries the DRAFT marker (pending operator red-pen)`,
+      marker.startsWith('DRAFT') && readFileSync(file, 'utf8').includes('DRAFT — pending ratification'),
+      `status is "${marker}"`)
+  }
+
+  // The canon query templates are transcribed here from Part 4a by hand — the
+  // config drifting from the blueprint's starter set must go red, exactly like
+  // CANON_TRANSITIONS. (Ratified edits update both, deliberately.)
+  const CANON_QUERY_TEMPLATES = [
+    'site:stan.store ("online coach" OR "coaching") {metro_term}',
+    'site:stan.store (fitness OR "personal trainer") {metro_term}',
+    'site:linktr.ee "online fitness coach" {metro_term}',
+    'site:linktr.ee ("apply" OR "coaching application") fitness {metro_term}',
+    'site:beacons.ai fitness coach {metro_term}',
+    'site:instagram.com "online coach" "{metro_term}" ("comment" OR "DM me")',
+    'site:instagram.com fitness coach "{metro_term}" ("spots open" OR "apply")',
+    '"1:1 coaching" fitness "{metro_term}" ("stan.store" OR "linktr.ee")',
+  ]
+  assert('query templates match the Part 4a starter set exactly',
+    JSON.stringify([...QUERY_TEMPLATES]) === JSON.stringify(CANON_QUERY_TEMPLATES))
+
+  // Law 3, as a predicate: the link fetcher must refuse Instagram hosts.
+  assert('fetchLink refuses instagram.com (Law 3)', !isFetchableUrl('https://www.instagram.com/someone/'))
+  assert('fetchLink refuses instagr.am (Law 3)', !isFetchableUrl('https://instagr.am/x'))
+  assert('fetchLink allows ordinary link pages', isFetchableUrl('https://stan.store/x') && isFetchableUrl('https://linktr.ee/y'))
+
+  // Extraction drift probes — fixed inputs, expected outputs.
+  const page = 'Coaching by Dana. DM READY at instagram.com/dana.fit — 1:1 $299/mo, 12-week $1,200. ' +
+    'Also @dana.backup and mail me at dana@gmail.com. Checkout via stan.store, Klarna ok. TikTok: tiktok.com/@danafit'
+  const handles = extractHandles(page)
+  assert('extractHandles: instagram.com link first, @mention second, email NOT a handle',
+    handles[0] === 'dana.fit' && handles.includes('dana.backup') && !handles.includes('gmail.com'),
+    JSON.stringify(handles))
+  const prices = extractPrices(page)
+  assert('extractPrices finds $299/mo and $1,200', prices.some((p2) => p2.includes('299')) && prices.some((p2) => p2.includes('1,200')), JSON.stringify(prices))
+  const tells = extractPlatformTells(page)
+  assert('platform tells: stan_store + klarna + tiktok_presence',
+    tells.includes('stan_store') && tells.includes('klarna') && tells.includes('tiktok_presence'), JSON.stringify(tells))
+
+  // Run-ledger integrity on the live DB (Law 4).
+  const badRuns = q<{ id: number }>(
+    "SELECT id FROM harvest_runs WHERE adapter IS NULL OR trim(adapter)='' OR started_at IS NULL",
+  )
+  assert('every harvest run carries adapter + started_at', badRuns.length === 0, `${badRuns.length} rows`)
+  const overcount = q<{ id: number }>(
+    'SELECT id FROM harvest_runs WHERE items_new > items_found',
+  )
+  assert('no run reports more inserts than finds', overcount.length === 0, overcount.map((r) => r.id).join(','))
+  const knownSources = ['manual', 'serper', 'hashtags', 'commenters']
+  const strays = q<{ source: string }>(
+    `SELECT DISTINCT source FROM candidates WHERE source NOT IN (${knownSources.map((s) => `'${s}'`).join(',')})`,
+  )
+  assert('every candidate source is a known adapter or manual', strays.length === 0, strays.map((r) => r.source).join(','))
 }
 
 sqlite.close()

@@ -1,0 +1,97 @@
+{
+  "hashtag_profiles": {
+    "#nycfitnesscoach": [
+      {
+        "username": "coachtash.nyc",
+        "fullName": "Natasha Boone",
+        "biography": "NYC online coach 🗽 strength + fat loss · DM 'PLAN' to apply · 1:1 spots open",
+        "followersCount": 4700,
+        "postsLast30d": 8,
+        "engagementProxy": 0.044,
+        "externalUrl": "https://stan.store/coachtash"
+      },
+      {
+        "username": "devoncruzfit",
+        "fullName": "Devon Cruz",
+        "biography": "Brooklyn → everywhere. 1:1 online coaching. DM 'READY'.",
+        "followersCount": 6200,
+        "postsLast30d": 9,
+        "engagementProxy": 0.051,
+        "externalUrl": "https://stan.store/devoncruzfit"
+      },
+      {
+        "username": "gymsharkwear",
+        "fullName": "Gymshark",
+        "biography": "Official. Progress is a process. Shop new releases.",
+        "followersCount": 7800000,
+        "postsLast30d": 22,
+        "engagementProxy": 0.004,
+        "externalUrl": "https://gymshark.com"
+      }
+    ],
+    "#brooklynfitness": [
+      {
+        "username": "liftlab.bk",
+        "fullName": "Omar Diaz",
+        "biography": "Brooklyn strength coach · online + in person · programs in bio",
+        "followersCount": 2900,
+        "postsLast30d": 5,
+        "engagementProxy": 0.038,
+        "externalUrl": "https://linktr.ee/liftlabbk"
+      }
+    ],
+    "#miamifitnesscoach": [
+      {
+        "username": "camifit.mia",
+        "fullName": "Camila Torres",
+        "biography": "Miami online coach 🌴 women's fat loss · comment 'START' · applications open",
+        "followersCount": 5400,
+        "postsLast30d": 7,
+        "engagementProxy": 0.049,
+        "externalUrl": "https://beacons.ai/camifit"
+      },
+      {
+        "username": "marcoreyes.fit",
+        "fullName": "Marco Reyes",
+        "biography": "Miami online fitness coach. 1:1 apps open. Free macro guide below.",
+        "followersCount": 8100,
+        "postsLast30d": 6,
+        "engagementProxy": 0.047,
+        "externalUrl": "https://linktr.ee/marcoreyesfit"
+      }
+    ],
+    "#southfloridafitness": [
+      {
+        "username": "wellness.wanda",
+        "fullName": "Wanda Pierre",
+        "biography": "Holistic wellness • essential oils • join my team 💫",
+        "followersCount": 12400,
+        "postsLast30d": 18,
+        "engagementProxy": 0.009,
+        "externalUrl": "https://wandawellness.shop"
+      }
+    ]
+  },
+  "commenter_profiles": {
+    "nyc.lift.coach": [
+      {
+        "username": "trainwithmiles",
+        "fullName": "Miles Grant",
+        "biography": "NYC trainer · online coaching soon · DM for programs",
+        "followersCount": 1800,
+        "postsLast30d": 4,
+        "engagementProxy": 0.031,
+        "externalUrl": null
+      },
+      {
+        "username": "fitfoodie.jess",
+        "fullName": "Jess",
+        "biography": "recipes + gym life. not a coach, just obsessed",
+        "followersCount": 950,
+        "postsLast30d": 11,
+        "engagementProxy": 0.06,
+        "externalUrl": null
+      }
+    ]
+  }
+}

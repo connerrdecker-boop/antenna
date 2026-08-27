@@ -62,9 +62,11 @@ async function main() {
 
   console.log(`pipeline — provider: ${provider.name} · threshold: ${PRESCORE_THRESHOLD}`)
 
-  // 1. Bootstrap enrichment: manual adds have no bio, so nothing to pre-score on.
+  // 1. Bootstrap enrichment: only rows with NOTHING to pre-score on — no bio
+  //    AND no link_domain (manual adds). Harvest-sourced rows carry one or the
+  //    other and go straight to the cheap filter first (the spine's whole point).
   console.log('\n[1/4] bootstrap enrich (candidates with no profile data yet)')
-  for (const c of pending().filter((c) => !c.bio?.trim())) {
+  for (const c of pending().filter((c) => !c.bio?.trim() && !c.link_domain?.trim())) {
     const outcome = await enrichCandidate(c, provider)
     if (outcome === 'enriched') { tally.bootstrapped++; console.log(`  enriched @${c.handle}`) }
     else if (outcome === 'no_data') {
@@ -74,8 +76,10 @@ async function main() {
   }
 
   // 2. Pre-score — the first LLM stage; a missing key halts HERE, cleanly.
+  //    Eligible: anything with a bio OR a link_domain (a stan.store domain
+  //    alone is a real signal; the prompt handles a null bio by design).
   console.log('\n[2/4] pre-score (claude-haiku-4-5, bio-only)')
-  for (const c of pending().filter((c) => c.bio?.trim() && c.pre_score === null)) {
+  for (const c of pending().filter((c) => (c.bio?.trim() || c.link_domain?.trim()) && c.pre_score === null)) {
     const res = await prescoreCandidate(c)
     if (res.ok) {
       tally.prescored++

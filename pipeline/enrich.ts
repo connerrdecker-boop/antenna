@@ -25,19 +25,34 @@ type CandidateRow = {
   bio: string | null
   pre_score: number | null
   name: string | null
+  link_domain?: string | null
 }
 
-/** The Part V gate, bootstrap exception included. */
-export function enrichAllowed(c: { bio: string | null; pre_score: number | null }): boolean {
-  if (c.bio === null || c.bio.trim() === '') return true // bootstrap: nothing to pre-score yet
-  return c.pre_score !== null && c.pre_score >= PRESCORE_THRESHOLD
+/**
+ * The Part V gate, bootstrap exception included. A3 refinement: once a
+ * pre-score EXISTS it always rules — a serper-sourced row (bio null,
+ * link_domain set) that pre-scored below threshold must never be enriched via
+ * the bootstrap door. Bootstrap applies only to rows with nothing to
+ * pre-score on at all: no bio AND no link_domain (i.e. manual adds).
+ */
+export function enrichAllowed(c: {
+  bio: string | null
+  pre_score: number | null
+  link_domain?: string | null
+}): boolean {
+  if (c.pre_score !== null) return c.pre_score >= PRESCORE_THRESHOLD
+  const hasBio = !!c.bio?.trim()
+  const hasLink = !!c.link_domain?.trim()
+  return !hasBio && !hasLink // bootstrap: nothing for the pre-filter to read yet
 }
 
 export async function enrichCandidate(
   candidate: CandidateRow,
   provider: ProfileProvider,
 ): Promise<EnrichOutcome> {
-  if (!enrichAllowed({ bio: candidate.bio, pre_score: candidate.pre_score })) return 'gated'
+  if (!enrichAllowed({ bio: candidate.bio, pre_score: candidate.pre_score, link_domain: candidate.link_domain })) {
+    return 'gated'
+  }
 
   const packet = await provider.fetchProfile(candidate.handle)
   if (!packet) return 'no_data'
