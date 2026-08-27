@@ -15,12 +15,15 @@ import {
 } from '@/db/enums'
 import { ENFORCEMENT_TRIGGERS } from '@/db/enforcement'
 import { listCandidates } from '@/db/repo'
-import { HASHTAG_LIBRARY_STATUS } from '@/config/hashtags'
+import { PRESCORE_THRESHOLD } from '@/config/limits'
+import { HASHTAG_LIBRARY_STATUS, VENUE_TAGS } from '@/config/hashtags'
 import { METRO_TERMS } from '@/config/metros'
 import { QUERY_LIBRARY_STATUS, QUERY_TEMPLATES } from '@/config/queries'
-import { SEED_LIST_STATUS } from '@/config/seeds'
+import { SEED_ACCOUNTS, SEED_LIST_STATUS, seedGateMessage } from '@/config/seeds'
 import { normalizeLinkUrl } from '@/lib/handle'
 import { TRANSITIONS } from '@/lib/status'
+import { enrichAllowed } from '@/pipeline/enrich'
+import { commentersAdapter } from '@/pipeline/harvest/commenters'
 import { extractHandles, extractPlatformTells, extractPrices } from '@/pipeline/harvest/extract'
 import { ensureBudget } from '@/pipeline/lib/budget'
 import { isFetchableUrl } from '@/pipeline/lib/fetchLink'
@@ -97,6 +100,14 @@ const CANON_ENUMS: Record<string, string[]> = {
 
 let failures = 0
 let warnings = 0
+
+/**
+ * Behavioural probes that must be awaited (adapter halts). Queued by the
+ * sections, drained by the tail before the summary prints — check.ts runs as
+ * top-level statements and tsx compiles it to CJS, where top-level await is
+ * unavailable.
+ */
+const asyncProbes: Promise<unknown>[] = []
 
 function assert(label: string, ok: boolean, detail = '') {
   if (ok) console.log(`  ok    ${label}`)
@@ -496,20 +507,45 @@ section('12. budget caps live in code and halt (Law 6, Part X)')
 }
 
 // 13. Harvest (A3): DRAFT gates, Law 3, extraction, run-ledger integrity.
-section('13. harvest — DRAFT gates, Law 3, extraction, ledger (Part IV / XV.8)')
+section('13. harvest — ratified configs, Law 3, extraction, ledger (Part IV / XV.8)')
 {
-  // Part XV.8: the starter libraries are red-penned before A3 runs them. Until
-  // ratified, the DRAFT marker must exist in each config AND the real
-  // providers must refuse. When ratification happens these assertions flip.
+  // Part XV.8's red pen has passed (A3): all three configs are ratified v1.
+  // These assertions FLIPPED from "carries the DRAFT marker" — a config that
+  // silently regresses to DRAFT now goes red, because a ratified library that
+  // reverts is a canon change, not a code change.
   for (const [file, marker] of [
     ['config/queries.ts', QUERY_LIBRARY_STATUS],
     ['config/hashtags.ts', HASHTAG_LIBRARY_STATUS],
     ['config/seeds.ts', SEED_LIST_STATUS],
   ] as const) {
-    assert(`${file} carries the DRAFT marker (pending operator red-pen)`,
-      marker.startsWith('DRAFT') && readFileSync(file, 'utf8').includes('DRAFT — pending ratification'),
+    assert(`${file} is ratified, not DRAFT`,
+      marker.startsWith('ratified') && !readFileSync(file, 'utf8').includes('DRAFT — pending ratification'),
       `status is "${marker}"`)
   }
+
+  // Ratified-as-EMPTY, with a permanent gate (Part 4c). Empty is the seed
+  // list's correct state; the gate is not a temporary draft guard, so it must
+  // survive ratification — seed harvest halts every time the list is empty.
+  assert('seed list is empty by ratified design',
+    SEED_ACCOUNTS.nyc.length === 0 && SEED_ACCOUNTS.sofla.length === 0,
+    `nyc ${SEED_ACCOUNTS.nyc.length}, sofla ${SEED_ACCOUNTS.sofla.length}`)
+  assert('the seed gate message names the operator ("Conner fills this")',
+    seedGateMessage('nyc').includes('seed list empty — Conner fills this'))
+  // Behavioural: the adapter itself must halt, not merely be documented to.
+  // Async, so it is queued and drained before the summary prints.
+  asyncProbes.push(
+    commentersAdapter
+      .run({ metro: 'nyc', provider: 'fixture', log: () => {} })
+      .then(
+        () => assert('commenters adapter halts on the empty seed list (permanent gate)', false, 'it ran instead'),
+        (e: unknown) => assert('commenters adapter halts on the empty seed list (permanent gate)',
+          (e as Error).message.includes('seed list empty'), (e as Error).message.slice(0, 70)),
+      ),
+  )
+
+  // Venue tags: empty BY DESIGN until harvested bios teach us (Part 4b).
+  assert('venue tags are empty by design until harvest data exists',
+    VENUE_TAGS.nyc.length === 0 && VENUE_TAGS.sofla.length === 0)
 
   // The canon query templates are transcribed here from Part 4a by hand — the
   // config drifting from the blueprint's starter set must go red, exactly like
@@ -561,8 +597,49 @@ section('13. harvest — DRAFT gates, Law 3, extraction, ledger (Part IV / XV.8)
   assert('every candidate source is a known adapter or manual', strays.length === 0, strays.map((r) => r.source).join(','))
 }
 
-sqlite.close()
+// 14. The pre-score kill is final: a killed row can never re-enter any gate.
+section('14. a prescore-killed candidate can never re-enter a gate (Law 7 leak class)')
+{
+  // The leak this guards: enrichAllowed once let a row with no bio through a
+  // "bootstrap" door regardless of its pre-score, so a serper row the cheap
+  // filter had KILLED could still reach paid enrichment. An existing pre-score
+  // must always rule, whatever else the row does or does not carry.
+  const killed = PRESCORE_THRESHOLD - 1
+  const shapes: Array<[label: string, row: { bio: string | null; pre_score: number | null; link_domain?: string | null }]> = [
+    ['killed + bio + link', { bio: 'coach bio', pre_score: killed, link_domain: 'stan.store' }],
+    ['killed + bio, no link', { bio: 'coach bio', pre_score: killed, link_domain: null }],
+    ['killed + link, NO bio (the old bootstrap door)', { bio: null, pre_score: killed, link_domain: 'stan.store' }],
+    ['killed + NEITHER bio nor link', { bio: null, pre_score: killed, link_domain: null }],
+    ['killed + empty-string bio', { bio: '   ', pre_score: killed, link_domain: null }],
+    ['killed at exactly threshold-1', { bio: null, pre_score: PRESCORE_THRESHOLD - 1 }],
+  ]
+  const leaks = shapes.filter(([, row]) => enrichAllowed(row))
+  assert('no killed-row shape can reach enrichment through any door', leaks.length === 0,
+    leaks.map(([label]) => label).join(' | '))
 
-console.log(`\n${failures === 0 ? 'CHECK GREEN' : `CHECK RED — ${failures} failure(s)`}${warnings ? ` · ${warnings} warning(s)` : ''}`)
-if (failures === 0) console.log('(npm run check chains check:canon and check:golden next — Part 2.6)')
-process.exit(failures === 0 ? 0 : 1)
+  // The gate still opens for what it should, or it would be a different bug.
+  assert('a passing pre-score still enriches',
+    enrichAllowed({ bio: null, pre_score: PRESCORE_THRESHOLD, link_domain: 'stan.store' }))
+  assert('a bio-less, link-less manual add still bootstraps',
+    enrichAllowed({ bio: null, pre_score: null, link_domain: null }))
+  assert('an unscored HARVEST row does NOT bootstrap (it takes the cheap filter first)',
+    !enrichAllowed({ bio: 'coach bio', pre_score: null, link_domain: null }) &&
+    !enrichAllowed({ bio: null, pre_score: null, link_domain: 'stan.store' }))
+
+  // And the live DB agrees: nothing killed has been enriched.
+  const enrichedKills = q<{ handle: string; pre_score: number }>(
+    'SELECT handle, pre_score FROM candidates WHERE pre_score IS NOT NULL AND pre_score < ? AND last_enriched IS NOT NULL',
+    PRESCORE_THRESHOLD,
+  )
+  assert('no killed candidate in the DB carries an enrichment timestamp',
+    enrichedKills.length === 0, enrichedKills.map((r) => `${r.handle}=${r.pre_score}`).join(', '))
+}
+
+// Drain the behavioural probes, then report. Nothing prints before every
+// assertion has run.
+void Promise.all(asyncProbes).then(() => {
+  sqlite.close()
+  console.log(`\n${failures === 0 ? 'CHECK GREEN' : `CHECK RED — ${failures} failure(s)`}${warnings ? ` · ${warnings} warning(s)` : ''}`)
+  if (failures === 0) console.log('(npm run check chains check:canon and check:golden next — Part 2.6)')
+  process.exit(failures === 0 ? 0 : 1)
+})

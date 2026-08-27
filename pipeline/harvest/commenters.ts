@@ -6,7 +6,7 @@
  * Precision is low by design; the pre-score absorbs it.
  */
 import { HARVEST_COST } from '@/config/limits'
-import { SEED_ACCOUNTS } from '@/config/seeds'
+import { SEED_ACCOUNTS, seedGateMessage } from '@/config/seeds'
 import { PipelineHalt } from '@/lib/env'
 import type { AdapterParams, CandidateSeed, HarvestAdapter } from './types'
 import { apifyActorProvider, fixtureActorProvider } from './providers'
@@ -15,14 +15,10 @@ const DEFAULT_LIMIT_PER_SEED = 40
 
 async function run(params: AdapterParams): Promise<CandidateSeed[]> {
   const log = params.log ?? console.log
+  // The permanent seed gate (ratified A3): empty is the list's correct state,
+  // and harvest halts on it every time — not once, not "until ratified".
   const seedList = SEED_ACCOUNTS[params.metro]
-  if (!seedList.length) {
-    throw new PipelineHalt(
-      `The ${params.metro} seed-account list (config/seeds.ts) is empty — by canon design: ` +
-      '"leave list empty; I fill it" (Part 4c). Add 10-20 local coaches from the best 4a/4b ' +
-      "finds + Christopher's orbit, then re-run. Nothing was charged.",
-    )
-  }
+  if (!seedList.length) throw new PipelineHalt(seedGateMessage(params.metro))
   const provider = params.provider === 'real' ? apifyActorProvider() : fixtureActorProvider()
   const limit = params.limitPerTag ?? DEFAULT_LIMIT_PER_SEED
   log(`  ${seedList.length} seed account(s) × up to ${limit} commenters each (${provider.name})`)

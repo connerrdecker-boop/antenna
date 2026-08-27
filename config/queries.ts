@@ -1,17 +1,19 @@
 /**
- * ════════════════════ DRAFT — pending ratification ════════════════════
+ * ══════════════════════════ RATIFIED v1 (A3) ══════════════════════════
  * The Part 4a seller-exhaust query library, STARTER SET, transcribed from the
- * blueprint verbatim. Part XV.8: "The starter query + hashtag libraries —
- * red-pen before A3 runs them." Until the red pen has passed, `npm run check`
- * asserts this DRAFT marker exists and the REAL serp provider refuses to run;
- * the fixture provider runs freely.
+ * blueprint verbatim. Part XV.8's red pen has passed: this set stands as-is
+ * for the first harvest. Tuning comes from A4's measured-run data, not from
+ * armchair edits — a query that earns its keep is one the numbers vouch for.
+ *
+ * `npm run check` asserts this file matches the Part 4a starter set exactly,
+ * so a future edit is a canon-and-config change together, never a silent one.
  * ═══════════════════════════════════════════════════════════════════════
  *
  * `{metro_term}` is expanded combinatorially over config/metros.ts terms at
  * run time; every generated query is logged in harvest_runs.params (Law 4).
  */
 
-export const QUERY_LIBRARY_STATUS = 'DRAFT — pending ratification'
+export const QUERY_LIBRARY_STATUS = 'ratified v1 (A3) — tune from A4 measured data'
 
 /** The eight canon templates (Part 4a), verbatim. */
 export const QUERY_TEMPLATES: readonly string[] = [

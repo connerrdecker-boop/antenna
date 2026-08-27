@@ -18,19 +18,23 @@
 | Campaign | NYC + South Florida first · goal 20–25 signed LOIs, ≥8–10 at tier T2/T3 · **Ashok's gate stays 10** |
 | Budget | Hard cap **$250** total external spend, enforced in code |
 | Timeline | A1–A2 evenings post-Friday · A3 weekend · A4 (hour of truth) before wave one · wave one launches after Christopher confirms |
-| Build state | **A1 shipped** · **A2 build half shipped + ratified** (calibration + golden set pending) · **A3 build half shipped** (real providers await keys + ratified libraries) · A4: /metrics pulled forward, export + measured run remain |
+| Build state | **A1 shipped** · **A2 build half shipped + ratified** (calibration + golden set pending) · **A3 build half shipped + ratified** (real providers await keys only) · A4: /metrics pulled forward, export + measured run remain |
 
 ## Phase log
 
-**A3 — Harvest, build half · 2026-08-27 · shipped; real providers await keys + ratified libraries.** Deviations and DRAFT configs below are PENDING ratification.
+**A3 — Harvest, build half · 2026-08-27 · shipped and RATIFIED; real providers now await keys only.** Commits: `966d374` build half · `+ A3 ratifications + canon update`.
 
 *Delivered*: the Part IV adapter contract with all three adapters — 4a seller-exhaust (query library over metros, ≤5 pages, URL-dedupe, page resolution, handle/offer/price/tell extraction), 4b hashtag mining (actor-class, bios + follower counts arrive with the seed and write Observatory snapshots), 4c commenters (halts by canon design while the seed list is empty) · `lib/fetchLink.ts` to spec (1 req/s, 10s timeout, <500 chars ⇒ failed, never blocks) with a **Law 3 hard refusal of Instagram hosts** · ingest with in-run + cross-run dedupe, provenance stamping, harvest_runs + spend rows, budget gated BEFORE provider work · every external service behind fixture/real providers — fixture runs the whole flow offline tonight; real stubs halt naming their exact ask (SERPER_API_KEY / APIFY_TOKEN) and refuse to spend while libraries are DRAFT · `/settings` (estimate BEFORE confirm, run log, key presence, DRAFT gates, spend vs caps, run ledger) · `/metrics` per 8.4 pulled forward from A4 (per-source qualification, funnel, cost per qualified, DMs/day, reply rate — live data, honest em-dashes).
 
-*DRAFT configs awaiting red-pen (Part XV.8)*: `config/queries.ts` (the canon 4a starter set, transcribed verbatim; check asserts it matches Part 4a exactly) · `config/hashtags.ts` (the 4b starter list) · `config/seeds.ts` (empty by canon: "leave list empty; I fill it"). `npm run check` asserts the DRAFT markers exist until ratification; real providers refuse to spend while they do.
+*Configs RATIFIED v1 (Part XV.8 red pen passed)*: `config/queries.ts` — the 4a starter set stands as-is for the first harvest; tuning comes from A4 measured data, not armchair edits · `config/hashtags.ts` — the 4b starter list stands; `VENUE_TAGS` stays empty by design until harvested bios teach us · `config/seeds.ts` — **empty is its ratified state**, carrying a PERMANENT gate ("seed list empty — Conner fills this") that halts seed harvest every time the list is empty, not merely until ratification. The check-suite assertions FLIPPED accordingly: a config regressing to DRAFT, a silently populated seed list, or a non-halting seed adapter now each turn the suite red.
 
-*Pipeline routing refinement*: prescore eligibility = bio OR link_domain (a stan.store domain alone is signal; serper-sourced rows go through the cheap filter first, as the spine intends); bootstrap enrichment narrowed to rows with neither (manual adds); an existing pre-score always rules the enrich gate, so a killed serper row can never sneak in through the bootstrap door.
+*Also ratified*: the **Law 3 Instagram-host fetch refusal**, promoted from "canon implies" to explicit canon text in Law 3 and Part 4a — `lib/fetchLink.ts` throws on an IG host rather than skipping it, so a miswired adapter fails loudly.
 
-*Verification*: 87 db-suite check assertions (new section 13: DRAFT gates, Part 4a template fidelity, Law 3 predicate, extraction probes, run-ledger integrity; serp/actors cap halts join section 12) · 14-assertion fetchLink unit vs a loopback server (`npm run test:fetchlink`) · 15-assertion browser E2E over /settings + /metrics · fixture harvest → dedupe (in-run, cross-run, cross-adapter) → prescore pickup proven live · all halt paths exercised (DRAFT gates, both keys, empty seed list, serp/actors/total caps).
+*Inventions ratified into canon*: the routing refinement (now Part V's gate-routing clause — an existing pre-score always rules; eligibility is bio OR link_domain; bootstrap narrowed to rows with neither) · `CandidateSeed.profile` with Part IX snapshots · snapshot only when metrics were observed (now Part IX's write-discipline clause) · cost midpoints with worst-case estimates · $0.00 fixture spend rows carrying `est_cost` · returned-after-run log for fixtures, streaming with real wiring · first-IG-link-wins per SERP hit, testimonial @mentions ignored · `npm run export` stays in A4.
+
+*Fixture defect caught by the new Law-7 assertion*: the A1 seed's `bulkbros.gym` carried `pre_score 18` while also being enriched and fully scored — a state the pipeline cannot produce, since 18 is a kill. Corrected to 46 (the cheap filter was uncertain; the full scorer caught the brand), which is what the two-stage design actually looks like.
+
+*Verification*: 90 db-suite check assertions at build half, 99 after ratification (section 13 ratified-config gates + Part 4a template fidelity + Law 3 predicate + extraction probes + run-ledger integrity; new section 14 proves a prescore-killed row cannot re-enter ANY gate, across six row shapes; serp/actors cap halts in section 12) · 14-assertion fetchLink unit vs a loopback server (`npm run test:fetchlink`) · 15-assertion browser E2E over /settings + /metrics · fixture harvest → dedupe (in-run, cross-run, cross-adapter) → prescore pickup proven live · every halt path exercised (both keys, empty seed list, serp/actors/total caps) · each flipped and new tripwire proven by reintroducing its defect.
 
 **A2 — Score + Ratify, build half · 2026-08-27 · shipped and RATIFIED; calibration awaits the operator.** Commits: `18e2385` build half · `+ A2 ratifications + canon update`.
 
@@ -77,7 +81,7 @@ Antenna finds online fitness coaches who match Instar's exact founding-cohort pr
 ## 1.3 The laws (bind every phase, every session)
 1. **Antenna preps, never sends.** No automation ever touches a DM. Every message leaves by Conner's hand, adapted per person. (Assistant law, internal edition — and survival: Instagram bans DM automation, and the personal account is the campaign's only channel.)
 2. **Never promise what the world controls.** Confidence is tiered: ~99% engineered on what we control (no lost data, no duplicate outreach, no wasted DM hours, caps holding) · ≥90% precision as a *tuned design target* on A-tier scoring · honest ranges on population, actor uptime, and Instagram's surface. The Ninth Law applies to our own tooling.
-3. **No direct scraping of Instagram from any infrastructure or account we own. No session cookies, ever, to any service.** Instar's roadmap depends on Meta API goodwill; commercial data services carry collection risk, we buy structured public data.
+3. **No direct scraping of Instagram from any infrastructure or account we own. No session cookies, ever, to any service.** Instar's roadmap depends on Meta API goodwill; commercial data services carry collection risk, we buy structured public data. **Enforced, not merely intended (ratified A3)**: `lib/fetchLink.ts` REFUSES Instagram hosts outright — a fetch aimed at `instagram.com`, any subdomain, or `instagr.am` throws rather than skipping, so a miswired adapter fails loudly instead of quietly breaching the law. `npm run check` asserts the refusal predicate directly. Instagram-side data reaches us only through commercial actors, whose infrastructure carries the collection risk; an `instagram.com` SERP hit is read from its URL and snippet alone and never resolved.
 4. **Provenance on every row.** Source, query, fetch date. Dirty sources are traceable and disposable.
 5. **Public business signals only.** Handles, bios, offer pages, posting behavior. No personal-life data, no contact harvesting beyond what a business publishes, no resale, trivial delete-on-request.
 6. **Budget caps live in code.** The pipeline halts itself; overspend is structurally impossible.
@@ -192,7 +196,7 @@ Secondary dedupe: normalized `link_url` — two candidates sharing a link page g
 ## 4a. Seller-exhaust search (PRIMARY — most robust, most novel)
 SERP queries against the public footprints of selling. Parse organic results → resolve each hit's page → extract IG handle (`instagram.com/<user>` links, `@handle` text), offers, price patterns (`$NNN`), platform tells.
 
-**The query library** (starter set — combinatorial over `config/metros.ts` terms; log every query in `harvest_runs.params`):
+**The query library** — `config/queries.ts`, **RATIFIED v1 (A3)**: the starter set below stands as-is for the first harvest; tuning comes from A4's measured-run data, not from armchair edits. `npm run check` asserts the config matches this list exactly, so a future edit is a canon-and-config change together. Combinatorial over `config/metros.ts` terms; log every query in `harvest_runs.params`:
 ```
 site:stan.store ("online coach" OR "coaching") {metro_term}
 site:stan.store (fitness OR "personal trainer") {metro_term}
@@ -205,18 +209,20 @@ site:instagram.com fitness coach "{metro_term}" ("spots open" OR "apply")
 ```
 Pagination to ~5 pages/query max. Dedupe on result URL before fetching. A Stan Store hit is **double gold**: proof of selling *and* the exact duct-tape stack the pitch attacks.
 
-**Link-page fetch** (`lib/fetchLink.ts`): polite plain fetch, 1 req/sec, 10s timeout. If the body yields <500 chars of text (JS shell), set `link_fetch_status=failed` and continue — the candidate is still scoreable from IG data alone at lower confidence. Optional later fallback: a rendering-service actor. Never block on it.
+**Link-page fetch** (`lib/fetchLink.ts`): polite plain fetch, 1 req/sec, 10s timeout. If the body yields <500 chars of text (JS shell), set `link_fetch_status=failed` and continue — the candidate is still scoreable from IG data alone at lower confidence. Optional later fallback: a rendering-service actor. Never block on it. **Law 3 clause (ratified A3)**: the fetcher refuses Instagram hosts by predicate and throws on one — it is the enforcement point of "no direct scraping from infrastructure we own", not a place that merely avoids IG by habit. The <500-char rule diagnoses LIVE fetches only; provider-supplied packet text is stored as given, so a genuinely short link page is never discarded as a JS shell.
 
 ## 4b. Hashtag + location mining (SECONDARY)
 Via commercial data actors, **no login**. Actor names churn: the builder selects currently-maintained "Instagram hashtag scraper" / "Instagram profile scraper"–class actors and **smoke-tests each with a ≤$2 run before any scale run**. Inputs from `config/metros.ts`; outputs mapped to CandidateSeed; expect flakiness and let Score do the filtering.
 
-**Starter hashtag library** (expand from observed bios; log expansions):
+**Starter hashtag library** — `config/hashtags.ts`, **RATIFIED v1 (A3)** (expand from observed bios; log expansions):
 `#onlinefitnesscoach #onlinecoach #fitnesscoach #nutritioncoach` × metro: `#nycfitnesscoach #nycpersonaltrainer #nycfitness #brooklynfitness #manhattanfitness #miamifitnesscoach #miamipersonaltrainer #miamifitness #fortlauderdalefitness #bocaratonfitness #westpalmbeachfitness #southfloridafitness`
 
-Location-tag feeds for marquee gyms/studios per metro: build the venue list during A3 from what harvested bios actually tag (data over guessing).
+Location-tag feeds for marquee gyms/studios per metro: build the venue list from what harvested bios actually tag (data over guessing). **Ratified A3: `VENUE_TAGS` is EMPTY BY DESIGN** and stays empty until harvest data fills it — populating it before the first run would be exactly the armchair guess this rule exists to prevent. `npm run check` asserts it stays empty until the data exists.
 
 ## 4c. Commenter / tagged harvesting (STRETCH — bonus tier)
 Follower-list scraping is the flakiest actor class and often demands cookies (banned — Law 3). Sturdier graph proxies, no login: **commenters and tagged/collab accounts on a seed list** of 10–20 local coaches per metro (sourced from 4a/4b's best finds + Christopher's orbit, post-confirmation). Precision is low by design; the pre-score absorbs it.
+
+**The seed list is ratified EMPTY (A3)** — `config/seeds.ts` ships with no handles, and empty is its *correct* state, not an unfinished one. It carries a **permanent gate**: seed-based harvest halts with *"seed list empty — Conner fills this"* whenever a metro's list is empty, every time, not once. Only Conner adds handles; the builder never does, because a guessed seed list would poison the very graph-proxy sample it exists to make trustworthy.
 
 ## 4d. Manual add (ALWAYS ON)
 `/add`: paste handles/URLs (one or many) or CSV. Runs the full enrich/score pipe. **Every Christopher warm intro enters here** — warm intros skip Harvest, never skip Track.
@@ -239,7 +245,11 @@ Wave three = add a config block. Metros are configuration, never code.
 
 # PART V — ENRICH
 
-Runs **only** on candidates with `pre_score ≥ PRESCORE_THRESHOLD` (default 40, `config/limits.ts`). Fetches: IG profile packet via profile-scraper-class actor (bio, follower count, ~last 6 posts' captions + types + rough engagement) + the link page (4a's fetcher, if not already fetched). Writes `last_enriched`, populates enrichment fields, **and writes an observation snapshot** (Law 9). Re-enrichment is on-demand only (a button in the drawer), never automatic — staleness is acceptable for prospecting; the observatory captures deltas when re-runs happen.
+Runs **only** on candidates with `pre_score ≥ PRESCORE_THRESHOLD` (default 40, `config/limits.ts`).
+
+**Gate routing (ratified A3)**: an existing `pre_score` ALWAYS rules — a candidate the cheap filter killed can never reach paid enrichment through any other door. Pre-score eligibility is `bio OR link_domain` (a `stan.store` domain alone is real signal, so harvest-sourced rows take the cheap filter first, as the spine intends). The bootstrap exception is narrowed to rows carrying *neither* — the manual adds of Part 4d, where there is genuinely nothing for the pre-filter to read. `npm run check` asserts every killed-row shape stays out of every gate: the leak it guards (a killed row re-entering via the bootstrap door) is precisely the class Law 7 exists for.
+
+Fetches: IG profile packet via profile-scraper-class actor (bio, follower count, ~last 6 posts' captions + types + rough engagement) + the link page (4a's fetcher, if not already fetched). Writes `last_enriched`, populates enrichment fields, **and writes an observation snapshot** (Law 9). Re-enrichment is on-demand only (a button in the drawer), never automatic — staleness is acceptable for prospecting; the observatory captures deltas when re-runs happen.
 
 ---
 
@@ -368,7 +378,7 @@ Per-source qualification rate (the empirical test of the market-size estimate) �
 
 # PART IX — THE OBSERVATORY
 
-Every harvest/enrichment writes an append-only snapshot: follower_count, posts_30d, format_mix, engagement_proxy. Accumulated, this is a **longitudinal panel of the exact market** — the cold-start substrate for the benchmarks module's public-side columns ("coaches your size post X/week, grow Y%/month") and the watchlist data model, replacing vendor folklore with observed numbers *before the fleet exists*.
+Every harvest/enrichment writes an append-only snapshot: follower_count, posts_30d, format_mix, engagement_proxy. **Ratified A3**: a snapshot is written when the adapter or enrichment actually OBSERVED metrics — an all-null row is noise, not data, and would skew every panel average it later joins. Hashtag/commenter actors return follower counts and so snapshot at harvest time; a SERP hit carries no metrics and waits for enrichment. Snapshots are never deduplicated away after the fact: Law 9 makes them permanent, so the discipline is at the write. Accumulated, this is a **longitudinal panel of the exact market** — the cold-start substrate for the benchmarks module's public-side columns ("coaches your size post X/week, grow Y%/month") and the watchlist data model, replacing vendor folklore with observed numbers *before the fleet exists*.
 
 **The hard boundary (canon)**: Antenna data **informs** the product (internal calibration, benchmark cold-start, strategist research); it **never renders in** the customer-facing product. Product surfaces draw from consented Graph API data only — (1) public metrics are shallow (followers/cadence visible; reach, saves, sends, DM starts, revenue are not — and those are the strategist's precision bar), and (2) Instar's roadmap depends on Meta API approval that scraped-data product features would jeopardize. The observatory shortens the cold start; the fleet loop remains the product's data spine.
 

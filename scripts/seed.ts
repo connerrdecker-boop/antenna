@@ -202,7 +202,13 @@ const FIXTURES: Fixture[] = [
     bio: 'Two locations. Squat racks, chalk, and no excuses. Memberships from $79/mo.',
     linkUrl: 'https://bulkbrosgym.com',
     metro: 'other', metroConfidence: 0.4,
-    preScore: 18, score: 22, tier: 'X',
+    // 46, not a kill score: this row is enriched AND fully scored, so by the
+    // pipeline's own ordering it must have PASSED the pre-score gate. The
+    // cheap bio-only filter was uncertain (the bio reads coach-adjacent at a
+    // glance) and the full scorer caught the brand — which is exactly why the
+    // two-stage design exists. A sub-threshold pre_score here would depict a
+    // state the pipeline cannot produce; check section 14 asserts it can't.
+    preScore: 46, score: 22, tier: 'X',
     evidence: [
       'GATE FAILED — is_individual_coach: "Two locations" and a brand voice, not a person.',
       'GATE FAILED — sells_online_coaching: the only offer is a $79/mo gym membership.',
