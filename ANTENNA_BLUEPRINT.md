@@ -1,9 +1,14 @@
 # ANTENNA — THE OUTREACH ENGINE BLUEPRINT
 *The complete, build-ready design for Instar's internal prospecting engine: find, score, and work LOI candidates — and accumulate a proprietary observatory of the market while doing it. **This document supersedes the same-session spec draft.** It is written so a brand-new chat, with no other context beyond the Instar project documents, knows exactly what to build, in what order, with what prompts, and how to run it afterward.*
+
 **Status**: Blueprint, ratified-pending-§15. Build begins **after the Friday Christopher meeting** — nothing here touches the Friday critical path. Serves the second validation gate (Ashok's bar: mockup ✅ + 10 LOIs).
+
 **Read order for a new chat**: this document top to bottom → doc 08 Part III (the LOI campaign) → doc 11 (methodology; the phase-prompt rules apply here unchanged).
+
 ---
+
 # PART 0 — ORIENTATION & STATUS BOARD
+
 | Fact | State |
 |---|---|
 | What | Single-user internal tool: Harvest → Enrich → Score → Ratify → Track, plus an append-only Observatory |
@@ -14,22 +19,39 @@
 | Budget | Hard cap **$250** total external spend, enforced in code |
 | Timeline | A1–A2 evenings post-Friday · A3 weekend · A4 (hour of truth) before wave one · wave one launches after Christopher confirms |
 | Build state | **A1 shipped** · A2–A4 not started |
+
 ## Phase log
-**A1 — Spine + Track · 2026-08-27 · shipped.** Commits `4a38a17` (blueprint onboarded as canon) · `6776aae` (spine + track) · `0b90d58` (enum + handle tripwires hardened) · `+ A1 ratifications + canon update`. Branch `claude/antenna-blueprint-setup-ofcrkq`, pending merge to main.
-*Delivered*: Part III schema exactly (7 tables, 31 candidate columns, enums verbatim) · Part 8.2 status machine · `/pipeline` (dense table, filters, funnel strip, row drawer) · `/add` (paste + CSV, dedupe on handle) · `npm run check` (Part 2.6) · `npm run backup` · 5 seed fixtures.
-*Design decision*: the blueprint's guarantees are **SQLite triggers generated from `db/enums.ts` + `lib/status.ts` + `config/limits.ts`**, not app-layer checks — so they bind every writer including a raw `sqlite3` shell, and the DB cannot drift from the TypeScript.
-*Verification*: 58 check assertions · 30 browser E2E assertions · 10 CSV cases · 29 handle-normalisation cases · transaction rollback and funnel math verified independently · `tsc` and production build clean.
-*Bugs found and fixed* (6): a Drizzle subquery correlating on an unqualified `"id"` (every row shared one days-in-status) · `/add` splitting prose on spaces into one candidate per word · an in-batch duplicate reported "added" twice · an `overflow-x:auto` wrapper silently breaking the sticky header · the enum "verbatim" check being a vacuous substring scan · a `lower()`-based handle guard that folds ASCII only.
-*Tripwires added after adversarial review* (5): the Part 8.2 graph is now transcribed independently into `scripts/check.ts` (it was imported from the module under test, so graph drift stayed green) · candidates minted mid-funnel are detected · `INSERT OR REPLACE` teleport is blocked at the DB · `transitionStatus` now detects a genuinely missing history trigger instead of overwriting the previous row · a failing probe no longer aborts the suite before it reports.
-*Ratified into canon*: the two re-entry edges in Part 8.2 above · genesis history row on insert · surrogate `id` PKs on log tables · `harvest_runs.status` = `running|ok|failed` · status-priority sort (replied first) · funnel conversions from "ever reached" · font stack over `next/font` · `check:golden` reporting PENDING until A2 fixtures exist.
-*Carries into A2*: `check:golden` is a stub until `golden/set.json` is hand-labeled; `/ratify`, `/metrics`, `/settings` are stubs in the nav.
+
+**A1 — Spine + Track · 2026-08-27 · shipped.** Branch `claude/antenna-blueprint-setup-ofcrkq`, pending merge to main. Commits: `4a38a17` blueprint onboarded · `6776aae` spine + track · `0b90d58` enum + handle tripwires hardened · `c17b75b` ratifications + canon update · `2a913d8` canon structure guard.
+
+*Delivered*: Part III schema exactly (7 tables, 31 candidate columns, enums verbatim) · the Part 8.2 status machine · `/pipeline` (dense table, filters, funnel strip, row drawer) · `/add` (paste + CSV, dedupe on handle) · `npm run check` (Part 2.6) · `npm run backup` · 5 seed fixtures.
+
+*Design decision*: the blueprint's guarantees are **SQLite triggers generated from `db/enums.ts` + `lib/status.ts` + `config/limits.ts`**, not app-layer checks — so they bind every writer including a raw `sqlite3` shell, and the database cannot drift from the TypeScript.
+
+*Verification*: 60 check assertions · 47 browser assertions across three suites · transaction rollback and funnel math verified independently · `tsc` and production build clean.
+
+*Bugs found and fixed* (6): a Drizzle subquery correlating on an unqualified `"id"`, which bound to `status_history.id` and gave every row the same days-in-status · `/add` splitting pasted prose on spaces into one candidate per word · an in-batch duplicate reported "added" twice · an `overflow-x:auto` wrapper silently breaking the sticky table header · the enum "verbatim" check being a vacuous substring scan · a `lower()`-based handle guard that folds ASCII only.
+
+*Fixed after adversarial review* (9, five of them tripwires in the check suite itself): the Part 8.2 legality assertion imported `canTransition` from the module the DB trigger is compiled from, so graph drift stayed green — the graph is now transcribed by hand into `scripts/check.ts` · candidates minted mid-funnel are detected · `INSERT OR REPLACE` teleport is blocked at the DB (a candidate is born `sourced`) · `transitionStatus` now detects a genuinely missing history trigger instead of overwriting the previous row · a failing probe no longer aborts the suite before it reports · the drawer had no React `key`, so a previous candidate's LOI tier could ride onto the next and record T2 on a deal meant as T1 · a global Enter handler suppressed activation of every button and link · `normalizeLinkUrl` mis-parsed leading whitespace into hostname `https` · `seed --reset` re-inserted identical observation snapshots that Law 9 makes permanently undeletable.
+
+*Canon integrity*: the blueprint's first transcription arrived with every blank line absent, which turned 14 of its `---` separators into setext H2 underlines and merged 30 paragraphs. It was re-transcribed from the intact source and verified byte-for-byte (`md5 b8cbeb43b697c155a6dcec37731c2864`, 507 lines, 122 blank). `npm run check:canon` now guards this structurally.
+
+*Ratified into canon*: the two re-entry edges in Part 8.2 · genesis history row on insert · surrogate `id` PKs on the log tables · `harvest_runs.status` = `running|ok|failed` · status-priority sort with replies first · funnel conversions computed from "ever reached" in `status_history` · a font stack instead of `next/font` · `check:golden` reporting PENDING until A2 fixtures exist.
+
+*Carries into A2*: `check:golden` is a stub until `golden/set.json` is hand-labeled; `/ratify`, `/metrics` and `/settings` are placeholders in the nav.
+
 ---
+
 # PART I — IDENTITY, THESIS, AND THE LAWS
+
 ## 1.1 One breath
 Antenna finds online fitness coaches who match Instar's exact founding-cohort profile, scores each one with evidence shown, drafts the one observation that makes a DM personal, and tracks every conversation from first message to signed LOI — while every harvest quietly accumulates a longitudinal dataset on the market Instar sells into. Conner sends every message himself.
+
 ## 1.2 The thesis
 **Discovery is a data business wearing a software costume — so Antenna competes on qualification, not collection.** Commercial databases index hundreds of millions of profiles but cannot score our filter (under ~10K, visibly selling, DM-run, online-not-studio, metro fit). Their output is a haystack; Antenna's is a ranked shortlist with reasons.
+
 **The inversion**: hunt *sellers*, filter for fitness — not the reverse. Active selling leaves public exhaust (Stan Store pages, Linktrees with offers, comment-word CTAs, "2 spots open" captions) that is indexable and searchable. Everyone entering through that door is already a seller, and the under-10K tier that databases index worst is who this method finds best.
+
 ## 1.3 The laws (bind every phase, every session)
 1. **Antenna preps, never sends.** No automation ever touches a DM. Every message leaves by Conner's hand, adapted per person. (Assistant law, internal edition — and survival: Instagram bans DM automation, and the personal account is the campaign's only channel.)
 2. **Never promise what the world controls.** Confidence is tiered: ~99% engineered on what we control (no lost data, no duplicate outreach, no wasted DM hours, caps holding) · ≥90% precision as a *tuned design target* on A-tier scoring · honest ranges on population, actor uptime, and Instagram's surface. The Ninth Law applies to our own tooling.
@@ -41,10 +63,14 @@ Antenna finds online fitness coaches who match Instar's exact founding-cohort pr
 8. **Separate estate.** Never touches ficm, its repo, its checks, or its deploy pipeline. Verify the git remote before any push.
 9. **Observations are append-only.** Snapshots accumulate; nothing overwrites history. (The Observatory law.)
 10. **A candidate becomes DM-able only through human ratification.** The queue is the taste gate, industrialized.
+
 ## 1.4 Success criteria (v1 done means)
 ≥350 A/B-tier candidates across both metros within 2 weeks of A4 · ≥60% A-tier survival through the ratify queue at first, **≥90% after tuning** (golden set enforced) · 100% of outreach tracked with timestamps · total external spend ≤ $250 · zero account-safety incidents.
+
 ---
+
 # PART II — ARCHITECTURE, STACK, REPO
+
 ## 2.1 The spine
 ```
 HARVEST (adapters) ──► candidate pool (deduped, provenance-stamped)
@@ -59,6 +85,7 @@ HARVEST (adapters) ──► candidate pool (deduped, provenance-stamped)
                               │
                          TRACK (funnel CRM: DM → reply → call → demo → LOI → signed)
 ```
+
 ## 2.2 Stack (exact)
 - **Next.js + TypeScript, App Router** (the known stack) · **no UI kit** · React latest stable
 - **SQLite** file DB (`./antenna.db`) via **Drizzle ORM** + `better-sqlite3` · migrations via drizzle-kit, never hand-edit the DB
@@ -66,6 +93,7 @@ HARVEST (adapters) ──► candidate pool (deduped, provenance-stamped)
 - **Anthropic API** for scoring: `claude-haiku-4-5` (pre-score), `claude-sonnet-4-6` (full score), temperature 0, JSON-only outputs
 - **Serper.dev-class SERP API** (Google Programmable Search as fallback) · **Apify-class data actors** for IG-side pulls
 - Design law **relaxed** (internal cockpit): borrow the Instar palette for speed — navy `#1B2A4A`, ink `#16181D`, hairline `#E9EAF0`, Inter 400/500/600, tabular numerals on all counts. Density over polish.
+
 ## 2.3 Repo layout
 ```
 antenna/
@@ -88,10 +116,13 @@ antenna/
   .env.local              # keys — gitignored
 ```
 `.gitignore`: `antenna.db*`, `.env*`, `/backups`.
+
 ## 2.4 Bootstrap (A1 prompt executes this)
 Private GitHub repo `antenna` → `create-next-app` (TS, App Router, no Tailwind config beyond tokens in globals) → install `drizzle-orm better-sqlite3 drizzle-kit tsx @anthropic-ai/sdk` → schema → migrate → seed → run.
+
 ## 2.5 Environment
 `.env.local`: `ANTHROPIC_API_KEY` · `SERPER_API_KEY` · `APIFY_TOKEN`. Personal accounts (governance, Part XII). Keys never committed, never echoed in logs.
+
 ## 2.5b External services (the complete dependency list — four accounts, personal email + card)
 | Service | Role | Cost (campaign) | Needed by |
 |---|---|---|---|
@@ -99,28 +130,46 @@ Private GitHub repo `antenna` → `create-next-app` (TS, App Router, no Tailwind
 | **Apify** (alt: Bright Data / EnsembleData-class) | IG-side pulls via hosted actors — *their* infra carries collection risk; we buy structured public data | Small free credit, then ~$1–3/1K profiles → capped $100 | Phase A3 |
 | **Anthropic API** (console.anthropic.com — separate from Claude subscriptions) | Pre-score (Haiku) + full score (Sonnet) | Pay-as-you-go → ~$40–75 | Phase A2 |
 | **GitHub personal** | Private `antenna` repo, separate from the M&S Bitbucket estate | $0 | Phase A1 |
+
 Nothing else needs an account: SQLite is a local file, there is no hosting, backups use the existing iCloud folder. **Deliberately absent** (laws, not oversights): no scraping libs/headless browsers aimed at Instagram from owned machines or IPs (Law 3) · no session cookies to any service (Law 3) · no DM automation of any kind (Law 1) · no influencer-database subscription (the category Antenna replaces; one emergency month is a last-resort fallback only). Clarification logged: ManyChat-class comment-to-DM tools are Meta-approved and belong to the *coach product's* capture playbook later — coaches automating their own inbound with their own words — never to our outbound.
+
 ## 2.6 The check suite (`npm run check`)
 Schema validates · handle uniqueness holds · every candidate carries `source + first_seen` · every status change has a `status_history` row · `signed` requires `loi_tier` · observations are append-only (no UPDATE path exists) · spend sum ≤ cap · `npm run check:golden` (Part 6.6) passes. Runs green or nothing ships — the ficm discipline, ported.
+
 ---
+
 # PART III — DATA CANON (the schema)
+
 Enums first — exact strings, everywhere:
 - `status`: `sourced | qualified | dmed | replied | no_response | call_booked | demo_given | loi_sent | signed | declined | rejected | banked`
 - `tier`: `A | B | C | X` · `loi_tier`: `t1 | t2 | t3` · `metro`: `nyc | sofla | other | unknown`
 - `decision` (ratify): `approve | reject | bank | flag` · `link_fetch_status`: `ok | failed | skipped`
+
 **candidates** — `id` · `handle` (unique, lowercased; **the dedupe key**) · `ig_url` · `name` · `follower_count` · `bio` · `link_url` · `link_domain` · `link_contents` (text) · `link_fetch_status` · `metro` · `metro_confidence` (0–1) · `source` · `source_detail` · `first_seen` · `last_enriched` · `pre_score` · `score` · `tier` · `score_prompt_version` · `evidence` (json string[]) · `hook_draft` · `stack_signals` (json — e.g. `["stan_store","venmo_mention","klarna"]`) · `extracted` (json: name, offers[{type,price?}], lead_magnet?) · `status` (default `sourced`) · `followup_count` (default 0) · `loi_tier` · `notes` · `next_action_date` · `created_at` · `updated_at`
+
 **status_history** — `candidate_id, from_status, to_status, at, note`. Written on every transition, no exceptions.
+
 **ratifications** — `candidate_id, decision, reason, at`. **This table is the training data**: the few-shot loop reads it (6.5).
+
 **harvest_runs** — `adapter, params(json), started_at, finished_at, items_found, items_new, est_cost, status, error`. Provenance + per-source qualification metrics + cost ledger feed.
+
 **outreach_log** — `candidate_id, direction(out|in), text, at`. What was actually sent/received — later enables reply-rate-by-opener learning.
+
 **observations** — `handle, observed_at, follower_count, posts_30d, format_mix(json), engagement_proxy, source`. **Append-only.** Every harvest and enrichment writes a snapshot (Part IX).
+
 **spend** — `at, category(serp|actors|llm), amount, run_ref, note`. `SUM(amount)` checked against the cap before every paid operation.
+
 Secondary dedupe: normalized `link_url` — two candidates sharing a link page get flagged for manual merge, never auto-merged.
+
 ---
+
 # PART IV — HARVEST (adapters in full)
+
 **Adapter contract** — every adapter exports `{ name, run(params): Promise<CandidateSeed[]> }` with `CandidateSeed = { handle?, ig_url?, link_url?, raw_evidence, source, source_detail }`. The pipeline dedupes, stamps provenance, inserts as `sourced`. A broken adapter is swapped, not mourned.
+
 ## 4a. Seller-exhaust search (PRIMARY — most robust, most novel)
 SERP queries against the public footprints of selling. Parse organic results → resolve each hit's page → extract IG handle (`instagram.com/<user>` links, `@handle` text), offers, price patterns (`$NNN`), platform tells.
+
 **The query library** (starter set — combinatorial over `config/metros.ts` terms; log every query in `harvest_runs.params`):
 ```
 site:stan.store ("online coach" OR "coaching") {metro_term}
@@ -133,16 +182,23 @@ site:instagram.com fitness coach "{metro_term}" ("spots open" OR "apply")
 "1:1 coaching" fitness "{metro_term}" ("stan.store" OR "linktr.ee")
 ```
 Pagination to ~5 pages/query max. Dedupe on result URL before fetching. A Stan Store hit is **double gold**: proof of selling *and* the exact duct-tape stack the pitch attacks.
+
 **Link-page fetch** (`lib/fetchLink.ts`): polite plain fetch, 1 req/sec, 10s timeout. If the body yields <500 chars of text (JS shell), set `link_fetch_status=failed` and continue — the candidate is still scoreable from IG data alone at lower confidence. Optional later fallback: a rendering-service actor. Never block on it.
+
 ## 4b. Hashtag + location mining (SECONDARY)
 Via commercial data actors, **no login**. Actor names churn: the builder selects currently-maintained "Instagram hashtag scraper" / "Instagram profile scraper"–class actors and **smoke-tests each with a ≤$2 run before any scale run**. Inputs from `config/metros.ts`; outputs mapped to CandidateSeed; expect flakiness and let Score do the filtering.
+
 **Starter hashtag library** (expand from observed bios; log expansions):
 `#onlinefitnesscoach #onlinecoach #fitnesscoach #nutritioncoach` × metro: `#nycfitnesscoach #nycpersonaltrainer #nycfitness #brooklynfitness #manhattanfitness #miamifitnesscoach #miamipersonaltrainer #miamifitness #fortlauderdalefitness #bocaratonfitness #westpalmbeachfitness #southfloridafitness`
+
 Location-tag feeds for marquee gyms/studios per metro: build the venue list during A3 from what harvested bios actually tag (data over guessing).
+
 ## 4c. Commenter / tagged harvesting (STRETCH — bonus tier)
 Follower-list scraping is the flakiest actor class and often demands cookies (banned — Law 3). Sturdier graph proxies, no login: **commenters and tagged/collab accounts on a seed list** of 10–20 local coaches per metro (sourced from 4a/4b's best finds + Christopher's orbit, post-confirmation). Precision is low by design; the pre-score absorbs it.
+
 ## 4d. Manual add (ALWAYS ON)
 `/add`: paste handles/URLs (one or many) or CSV. Runs the full enrich/score pipe. **Every Christopher warm intro enters here** — warm intros skip Harvest, never skip Track.
+
 ## 4.5 `config/metros.ts` (starter)
 ```
 nyc:   ["NYC","New York","Manhattan","Brooklyn","Queens","Bronx","Jersey City",
@@ -151,27 +207,38 @@ sofla: ["Miami","Fort Lauderdale","Boca Raton","West Palm Beach","Palm Beach",
         "Delray","Wynwood","Brickell","South Florida"]
 ```
 Wave three = add a config block. Metros are configuration, never code.
+
 ## 4.6 Platform scope (ratified reasoning — mirrors doc 14 §6)
 **Instagram-first, deliberately.** (1) The outreach channel: cold DMs are a normal business event on IG and structurally broken on TikTok (mutual-follow defaults, buried request folders) — even TikTok-native coaches get pitched on Instagram. (2) Product fit: the strategist launches IG-only (doc 14 ratification) and the entire demo canon is Instagram; recruiting TikTok-first founding coaches sells ahead of the product's own scope — the Ninth Law applied to our own recruiting. (3) The restriction is nearly costless: the seller-exhaust door is platform-agnostic — link pages list every social, and TikTok-heavy coaches who actually *sell* maintain the IG side because that's where the funnel lives (TikTok discovers, Instagram converts).
+
 **Passive capture**: when a link page or bio reveals a TikTok presence, record it — `extracted.tiktok_url` and `"tiktok_presence"` in `stack_signals`. Strong TikTok + IG DM funnel is a *premium* signal: those coaches are the natural test bed for the product's Phase F TikTok fast-follow. A TikTok harvest adapter is a future bolt-on under the adapter contract — never a v1 scope item.
+
 ---
+
 # PART V — ENRICH
+
 Runs **only** on candidates with `pre_score ≥ PRESCORE_THRESHOLD` (default 40, `config/limits.ts`). Fetches: IG profile packet via profile-scraper-class actor (bio, follower count, ~last 6 posts' captions + types + rough engagement) + the link page (4a's fetcher, if not already fetched). Writes `last_enriched`, populates enrichment fields, **and writes an observation snapshot** (Law 9). Re-enrichment is on-demand only (a button in the drawer), never automatic — staleness is acceptable for prospecting; the observatory captures deltas when re-runs happen.
+
 ---
+
 # PART VI — SCORE (rubric, prompts, math)
+
 ## 6.1 Stage 1 — pre-score prompt (`prompts/prescore_v1.md`, verbatim)
 ```
 You are a strict pre-filter for a prospecting pipeline. Target profile: individual
 online fitness/nutrition coaches who SELL coaching (not gyms, apparel brands,
 athletes, meme pages, or gym-floor-only trainers), roughly 500–20,000 followers.
+
 Given: handle, bio, follower_count, link_domain.
 Return ONLY JSON: {"pre_score": 0-100, "kill_reasons": string[]}
+
 Score 0–20 if: clearly a gym/brand/media page; athlete or model with no coaching
 offer; follower_count > 60,000 or < 200; no hint of coaching in bio or link.
 Score 60+ only if: an individual, coaching-adjacent language, plausible size band.
 When uncertain, score 45–55 (let the full scorer decide). No prose. JSON only.
 ```
 Model `claude-haiku-4-5`, temp 0. Cost ≈ negligible per profile.
+
 ## 6.2 Stage 2 — full-score prompt (`prompts/score_v1.md`, verbatim)
 ```
 You score prospects for Instar, a business platform for online fitness coaches.
@@ -179,7 +246,9 @@ IDEAL: individual online coach, 1K–10K followers, actively SELLING coaching
 (offers/prices/application visible), business visibly run through DMs
 (comment-word CTAs, "DM me", link-funnels ending in DMs), based in {NYC metro}
 or {South Florida}, posted within 30 days.
+
 INPUT: handle, bio, follower_count, last ~6 captions, link page text, tags.
+
 RETURN ONLY JSON:
 {"gates":{"sells_online_coaching":{"pass":bool,"evidence":str},
           "is_individual_coach":{"pass":bool,"evidence":str},
@@ -197,6 +266,7 @@ RETURN ONLY JSON:
               "lead_magnet":str|null},
  "hook_draft":str,
  "score":0-100,"tier":"A|B|C|X"}
+
 RULES: Any failed gate => tier X, score as computed but capped 39. Otherwise
 score = sum(dims) + 10 base + penalties. Tiers: A >= 75, B 55-74, C 40-54.
 Size band: 1K-10K full points; 500-1K or 10-20K half; outside quarter.
@@ -214,22 +284,34 @@ Examples of good hooks:
 No prose. JSON only.
 ```
 Model `claude-sonnet-4-6`, temp 0. Strip code fences, parse; on invalid JSON retry once, then flag `score_failed` for manual review. Store `score_prompt_version` on the row.
+
 ## 6.3 Tier semantics
 **A** = DM this week · **B** = DM after A-tier exhausts · **C** = revisit only if funnel starves · **X** = gated out (visible reasons preserved). Metro `other/unknown` with strong everything-else → ratify decision `bank` → status `banked` (wave-three inventory, never waste).
+
 ## 6.4 Cost model
 ~5K pre-scored → ~1.5K enriched + full-scored ≈ **$40–75 LLM total** (two-stage exists so the capable model never reads noise). Logged to `spend` per run.
+
 ## 6.5 The few-shot loop (the cheapest possible learning)
 `prompts/fewshot.ts` builds `{FEW_SHOT_BLOCK}` from the **ratifications** table: up to 10 recent decisions, balanced approve/reject, each rendered as a compact labeled example with Conner's reason. Every ratification makes the scorer more Conner-shaped. No fine-tuning theater.
+
 ## 6.6 The golden set (`golden/set.json` — scoring's regression test)
 During A2, hand-label **30 frozen profiles** (≈10 clear-A, 10 B/C, 10 X) with expected tiers. `npm run check:golden` re-scores the set against the current prompt+few-shot and asserts **≥90% tier agreement on A-vs-not-A**. Run after every prompt or few-shot change. This is how "tune the rubric" never silently becomes "break the rubric."
+
 ---
+
 # PART VII — RATIFY QUEUE (`/ratify`)
+
 Left: queue card (handle, tier+score, followers, metro chip, hook). Right: full evidence panel — every rubric line with its quoted evidence, link-outs to the IG profile and link page.
+
 **Keyboard** (target: 100 profiles in ~20 minutes): `y` approve → `qualified` · `n` reject → reason picker (`not-a-coach / gym-floor / not-selling / too-big / too-small / dead / other`) → `rejected` · `b` bank (right coach, wrong/unknown metro) → `banked` · `f` flag for a closer look · `j/k` navigate · `u` undo last. Every keystroke writes a **ratifications** row — decisions are the tuning fuel (6.5).
+
 ---
+
 # PART VIII — TRACK (the funnel CRM)
+
 ## 8.1 `/pipeline`
 Dense table: handle · tier+score · metro · followers · status · days-in-status · next action · followups. Default sort: status-priority then score desc. Filters: status, tier, metro, source. Row → right drawer: evidence, hook, notes, outreach log, status controls, share-link generator, link-outs. Funnel strip on top: counts per status + stage-to-stage conversion %.
+
 ## 8.2 The status machine (allowed transitions only — enforced)
 ```
 sourced ─(ratify y)→ qualified ─→ dmed ─→ replied ─→ call_booked ─→ demo_given ─→ loi_sent ─→ signed
@@ -241,27 +323,39 @@ Re-entry edges (ratified A1) — manual, via the drawer only, never automated:
    banked ─────→ qualified    wave-three activation: banked inventory enters the live funnel
 ```
 - `rejected` = **we** disqualified · `declined` = **they** said no. Never conflate.
-- **Re-entry (canon, ratified A1)**: `no_response → replied` and `banked → qualified` are the only ways back into the live funnel. Without them a late reply has no legal move and `banked` is dead stock — both violations of Law 7, and Part 2.2 forbids hand-editing the DB. Terminal states remain exactly three: `signed`, `declined`, `rejected`.
+- **Re-entry (canon, ratified A1)**: `no_response → replied` and `banked → qualified` are the only ways back into the live funnel. Without them a late reply has no legal move and `banked` is dead stock — both violations of Law 7, and Part 2.2 forbids hand-editing the DB. Terminal states are exactly three: `signed`, `declined`, `rejected`.
 - **Follow-up policy (canon)**: exactly **one** follow-up per candidate, 5–7 days after the DM, then `no_response`. Never a third touch — respect *and* account safety. `followup_count` enforces it.
 - `signed` **requires** `loi_tier`: **T1** signature-only · **T2** + stated beta commitment · **T3** + deposit.
+
 ## 8.3 The DM composer (inside the drawer — the tool preps, never sends)
 Shows: the hook_draft + the doc-08 canon opener **as raw material** under a permanent rule banner — *"Adapt every one. Never blast identical text."* · a share-link generator that outputs `instar.fit/<path>?code=instar9840` **with the cellular caveat line pre-appended** to the copy block (standing rules, embedded) · a **Mark as DMed** button that logs `outreach_log(out, text)` — pasting what was actually sent is encouraged, for later reply-rate learning.
 **Pacing guard**: today's DM count visible always · soft warning at **25/day** · hard warning at **40/day**. New outbound volume from a personal account is how accounts get actioned; slow is safe and matches the real time budget.
+
 ## 8.4 `/metrics`
 Per-source qualification rate (the empirical test of the market-size estimate) · funnel conversions per stage · cost per qualified candidate (`spend` ÷ qualified) · DMs/day trend · reply rate. **Wave two gets planned from this screen, not from vibes.** `npm run export` → CSV of signed + funnel summary: the Ashok package.
+
 ---
+
 # PART IX — THE OBSERVATORY
+
 Every harvest/enrichment writes an append-only snapshot: follower_count, posts_30d, format_mix, engagement_proxy. Accumulated, this is a **longitudinal panel of the exact market** — the cold-start substrate for the benchmarks module's public-side columns ("coaches your size post X/week, grow Y%/month") and the watchlist data model, replacing vendor folklore with observed numbers *before the fleet exists*.
+
 **The hard boundary (canon)**: Antenna data **informs** the product (internal calibration, benchmark cold-start, strategist research); it **never renders in** the customer-facing product. Product surfaces draw from consented Graph API data only — (1) public metrics are shallow (followers/cadence visible; reach, saves, sends, DM starts, revenue are not — and those are the strategist's precision bar), and (2) Instar's roadmap depends on Meta API approval that scraped-data product features would jeopardize. The observatory shortens the cold start; the fleet loop remains the product's data spine.
+
 ---
+
 # PART X — OPS: BUDGET, KEYS, BACKUP, SECURITY
+
 - **Budget enforcement**: before any paid call, `lib/budget.ts` checks `SUM(spend) + estimate ≤ CAP_TOTAL ($250)` and per-run caps (`config/limits.ts`: serp $25 · actors $100 · llm $75). Exceed → pipeline halts with a clear message. Every paid run writes `spend`.
 - **Keys**: `.env.local`, personal accounts, never committed, never logged.
 - **Backup**: `npm run backup` copies `antenna.db` to `~/Backups/antenna/antenna-YYYYMMDD-HHMM.db` (iCloud-synced dir). Run at the end of every operating session — put it in the session-close habit.
 - **Security posture**: localhost only, single user, no auth — therefore **never deploy publicly** without adding auth first (a one-line warning in the README).
 - **Account safety** (operating rule, not code): if Instagram shows any action warning, halt all outreach 48–72h, resume at half pace. The tool's pacing guard exists so this never triggers.
+
 ---
+
 # PART XI — FAILURE PLAYBOOK (when X breaks, do Y)
+
 | Failure | Response |
 |---|---|
 | Data actor broken/rate-limited | Swap to another maintained actor of the same class; smoke-test ≤$2; seller-exhaust path is unaffected meanwhile |
@@ -272,12 +366,19 @@ Every harvest/enrichment writes an append-only snapshot: follower_count, posts_3
 | IG account warning | Halt protocol (Part X); review pacing and text variance |
 | DB corruption/loss | Restore latest backup; `harvest_runs` provenance allows re-pulling anything since |
 | Cost anomaly | `spend` ledger by category + run_ref pinpoints it; caps already stopped the bleed |
+
 ---
+
 # PART XII — GOVERNANCE & HYGIENE (condensed; unchanged in substance)
+
 Built by Conner for Instar's validation campaign. **Personal repo, personal keys, personal card** (recommended; ratify) — cleanly separable from the M&S estate — **and disclosed**: one line in the post-Friday Ashok update ("built an internal outreach engine for the LOI push; here's the plan and timeline"). Nothing hidden, nothing on M&S metal, ownership treatment deferred to the structure paper where it belongs; one-line item for the attorney consult agenda. Data hygiene per Law 5. If Ashok offers to resource it: "it's small, faster on my side" holds the line warmly; log the offer as a structure-dinner data point.
+
 ---
+
 # PART XIII — BUILD PHASES & THE FOUR PROMPTS
+
 *Methodology (doc 11) applies unchanged: one phase per prompt · deviation summaries demanded · carried-over fixes ride at the top of the next prompt · COMMIT AND PUSH is the last line. The prompts below are complete drafts; before pasting A2–A4, prepend whatever the prior phase's deviation summary surfaced.*
+
 ## Phase A1 — Spine + Track (1 evening)
 ```
 PHASE A1 — ANTENNA: SPINE + TRACK.
@@ -286,34 +387,44 @@ deploy, no auth (localhost only — README warns: never deploy without auth). Th
 is a cockpit: density and speed over polish. Borrow Instar tokens (navy #1B2A4A,
 ink #16181D, hairline #E9EAF0, Inter 400/500/600, tabular numerals on counts);
 the full Instar design law does not bind.
+
 VERIFY FIRST: git remote is the private `antenna` repo — NOT ficm. Abort if wrong.
+
 SCAFFOLD: Next.js + TypeScript App Router. SQLite ./antenna.db via Drizzle +
 better-sqlite3, migrations via drizzle-kit. tsx for scripts. No UI kit.
 .gitignore: antenna.db*, .env*, /backups.
+
 SCHEMA — implement Part III of the blueprint EXACTLY (enums verbatim):
 candidates, status_history, ratifications, harvest_runs, outreach_log,
 observations (append-only: expose insert only, no update path), spend.
 Enforce: handle unique+lowercased; signed requires loi_tier; every status change
 writes status_history.
+
 /pipeline: dense table (handle, tier+score, metro, followers, status,
 days-in-status, next action, followups), sort status-priority then score desc,
 filters (status/tier/metro/source), row drawer (evidence list, hook, notes,
 outreach log, status controls honoring the Part 8.2 transition graph, link-outs).
 Funnel strip: counts per status + stage conversion %.
+
 /add: paste one/many handles or IG URLs + CSV upload. Insert as sourced,
 source=manual. Dedupe on handle — existing rows surfaced, never duplicated.
+
 Seed 5 realistic example rows across several statuses so every UI state renders.
+
 Scripts: npm run check (Part 2.6 assertions), npm run backup (timestamped copy
 to ~/Backups/antenna/).
+
 Verify: dev server clean · /pipeline dense with seeds · add dedupes · status
 transitions enforce the graph and write history · check green · tsc clean.
 COMMIT to main "A1: spine + track" AND PUSH.
 Summarize deviations + inventions for ratification.
 ```
+
 ## Phase A2 — Score + Ratify + Golden set (1 evening)
 ```
 PHASE A2 — ANTENNA: SCORE + RATIFY.
 FIRST: [carried fixes from A1 deviations].
+
 Implement Part V (enrich, gated on pre_score >= threshold from config/limits.ts;
 every enrichment writes an observation) and Part VI verbatim: prompts/prescore_v1.md
 and prompts/score_v1.md exactly as written in the blueprint; models
@@ -321,23 +432,28 @@ claude-haiku-4-5 / claude-sonnet-4-6, temp 0; JSON-only with fence-strip, one
 retry, then score_failed flag; store score_prompt_version. Few-shot builder
 (prompts/fewshot.ts) reads ratifications: up to 10 balanced examples into
 {FEW_SHOT_BLOCK}. All LLM spend logged to spend; budget checks per Part X.
+
 /ratify: Part VII exactly — queue card left, evidence panel right (every rubric
 line with quoted evidence), keyboard y/n/b/f/j/k/u, reason picker on reject,
 every keystroke writes ratifications, decisions move status per the graph.
+
 CALIBRATION RUN (in this phase): I will hand-feed ~20 real handles via /add.
 Enrich + score them, present results in /ratify. After my pass, build
 golden/set.json from 30 labeled profiles (pad from the batch as needed) and
 npm run check:golden asserting >=90% A-vs-not-A tier agreement. NO paid harvest
 spend this phase beyond enrichment of the seed batch.
+
 Verify: seed batch scored with evidence quoting real source text · ratify
 keyboard flow at speed · fewshot block regenerates after decisions ·
 check + check:golden green · tsc clean.
 COMMIT "A2: score + ratify + golden" AND PUSH. Deviation summary.
 ```
+
 ## Phase A3 — Harvest adapters (weekend block)
 ```
 PHASE A3 — ANTENNA: HARVEST.
 FIRST: [carried fixes from A2].
+
 Adapter contract per Part IV. Build in this order:
 1) harvest/serper.ts — seller-exhaust: the Part 4a query library over
    config/metros.ts (create with the 4.5 starter lists); pagination <=5 pages;
@@ -352,40 +468,53 @@ Adapter contract per Part IV. Build in this order:
 Budget: hard stop via lib/budget.ts (serp $25 / actors $100 / total $250).
 Pipeline UI: /settings page with run buttons per adapter, params, live run log,
 per-run cost estimate shown BEFORE confirm.
+
 Verify: one real serper run inserts deduped, provenance-stamped candidates ·
 actor smoke-test results shown · budget stop demonstrably triggers on a
 simulated overage · check green · tsc clean.
 COMMIT "A3: harvest" AND PUSH. Deviation summary + any invented
 queries/hashtags flagged for ratification.
 ```
+
 ## Phase A4 — The hour of truth (1 evening)
 ```
 PHASE A4 — ANTENNA: METRICS + THE MEASURED RUN.
 FIRST: [carried fixes from A3].
+
 /metrics per Part 8.4: per-source qualification rate, funnel conversions, cost
 per qualified, DMs/day, reply rate. npm run export => CSV (signed + funnel
 summary).
+
 THE RUN: harvest -> pre-score -> enrich -> score ~100 candidates PER METRO
 (respecting caps). I ratify. Then compute and present: qualification rate per
 source, cost per qualified, A-tier count, metro recall observations, and a
 one-paragraph honest read: which sources earn scale, which die.
+
 DM composer polish per Part 8.3: share-link generator (?code=instar9840 +
 cellular line pre-appended), pacing counters (soft 25 / hard 40), Mark-as-DMed
 logging outreach_log, follow-up due queue on /pipeline (one follow-up max,
 5-7 days, then no_response — enforced).
+
 Verify: metrics live against real data · export opens clean · pacing +
 follow-up rules enforced · check + check:golden green · tsc clean.
 COMMIT "A4: metrics + measured run" AND PUSH. Deviation summary + the
 go/no-go read on scaling each source.
 ```
+
 **Definition of done, v1**: all four phases committed · golden green · the A4 measured run produced per-source qualification rates · ≥1 real candidate walked `sourced → qualified → dmed` end-to-end · backup habit live.
+
 ---
+
 # PART XIV — OPERATING RHYTHM (post-build)
+
 **Daily (~30–45 min)**: ratify the new batch (queue speed makes this ~15 min) → send 15–25 *adapted* DMs from A-tier, logging each → process replies + today's follow-up queue → `npm run backup` on close.
 **Weekly**: /metrics review → tune (few-shot from the week's ratifications; `check:golden` after any change) → top-up harvest on the sources that earned it → plan next wave from numbers.
 **Campaign integration**: build A1–A2 the evenings after Friday · A3 the weekend · A4 before wave one · **wave one launches only after Christopher confirms** (his name is the opener's credibility engine — sequencing canon, doc 08) · warm intros enter via /add the day they arrive · the export lands in the Ashok package when the 10th strong LOI signs.
+
 ---
+
 # PART XV — OPEN ITEMS TO RATIFY
+
 1. Name — "Antenna" (working) or otherwise.
 2. Repo host + spend — personal GitHub + personal card (recommended).
 3. API accounts — personal keys (recommended, same logic).
@@ -394,7 +523,11 @@ go/no-go read on scaling each source.
 6. Goal tiers — T1/T2/T3 definitions and the 20–25 / ≥8–10 internal goal (Ashok's gate stays 10).
 7. Disclosure line to Ashok — in the post-Friday update, in Conner's dictated voice.
 8. The starter query + hashtag libraries — red-pen before A3 runs them.
+
 ---
+
 # PART XVI — GLOSSARY & MAINTENANCE
+
 **Antenna** — this tool. · **Seller exhaust** — the public footprint of active selling (Stan/Linktree/CTAs) used as the primary discovery channel. · **Pre-score / full score** — the two-stage LLM pipeline. · **Ratify queue** — the keyboard taste-gate that turns scores into DM-able candidates and training data. · **Golden set** — the frozen 30-profile regression test for scoring. · **Banked** — right coach, wrong/unknown metro; wave-three inventory. · **The hour of truth** — A4's measured 100-per-metro run that converts market-size estimates into per-source data. · **The Observatory** — the append-only public-market panel; informs the product, never renders in it. · **T1/T2/T3** — LOI strength tiers (signature / beta commitment / deposit).
+
 **Maintenance**: update Part 0's status board and the phase log after every build session (this doc is Antenna's BUILD_STATE) · ratified inventions from deviation summaries get written into Part III/IV/VI as canon · add row 15 to doc 13's inventory · after A4, write the measured qualification rates into Part 0 so the next chat starts from data, not estimates.
