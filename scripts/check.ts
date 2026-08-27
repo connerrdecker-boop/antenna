@@ -17,6 +17,8 @@ import { ENFORCEMENT_TRIGGERS } from '@/db/enforcement'
 import { listCandidates } from '@/db/repo'
 import { normalizeLinkUrl } from '@/lib/handle'
 import { TRANSITIONS } from '@/lib/status'
+import { ensureBudget } from '@/pipeline/lib/budget'
+import { buildFewShotBlock } from '@/prompts/fewshot'
 import { runMigrations } from './migrate'
 
 // ---------------------------------------------------------- PART III canon
@@ -52,7 +54,11 @@ const CANON_COLUMNS: Record<string, string[]> = {
  */
 const CANON_TRANSITIONS: Record<string, string[]> = {
   sourced: ['qualified', 'banked', 'rejected'],
-  qualified: ['dmed', 'declined'],
+  // The `sourced` targets on qualified/rejected/banked are the ratify-undo
+  // edges, transcribed from Part VII's `u` (undo last) requirement — the queue
+  // must be able to return a mis-keyed candidate. Pending ratification into
+  // the Part 8.2 diagram (A2 deviation summary).
+  qualified: ['dmed', 'declined', 'sourced'],
   dmed: ['replied', 'no_response', 'declined'],
   replied: ['call_booked', 'declined'],
   call_booked: ['demo_given', 'declined'],
@@ -60,11 +66,11 @@ const CANON_TRANSITIONS: Record<string, string[]> = {
   loi_sent: ['signed', 'declined'],
   // Re-entry edges, ratified in A1 and written into Part 8.2 as canon.
   no_response: ['replied'],
-  banked: ['qualified'],
+  banked: ['qualified', 'sourced'],
+  rejected: ['sourced'],
   // Terminal.
   signed: [],
   declined: [],
-  rejected: [],
 }
 
 /** Legality per the CANON copy above — never per the code under test. */
@@ -114,7 +120,11 @@ section('1. schema validates (Part III)')
     const missing = CANON_COLUMNS[table].filter((c) => !cols.has(c))
     assert(`table ${table} carries every Part III column`, missing.length === 0, `missing: ${missing.join(', ')}`)
     // `id` is the one documented invention: a surrogate PK on the log tables.
-    const extra = [...cols].filter((c) => !CANON_COLUMNS[table].includes(c) && c !== 'id')
+    // Documented allowances beyond Part III's lists: `id` (surrogate PK on the
+    // log tables, ratified A1) and `score_failed` (the flag Part 6.2 itself
+    // requires — "flag score_failed for manual review" — pending ratification).
+    const ALLOWED_EXTRA = ['id', 'score_failed']
+    const extra = [...cols].filter((c) => !CANON_COLUMNS[table].includes(c) && !ALLOWED_EXTRA.includes(c))
     assert(`table ${table} carries no columns Part III does not name`, extra.length === 0, `extra: ${extra.join(', ')}`)
   }
   // Part III names two defaults explicitly.
@@ -365,8 +375,97 @@ section('9. observatory integrity — duplicate snapshots can never be removed (
   }
 }
 
+// 10. The scoring prompts are the canon's fenced blocks, byte for byte.
+section('10. prompts are verbatim canon (Part 6.1 / 6.2)')
+{
+  // Extracted the same way the files were generated: the first fenced block
+  // after each section header in the blueprint. Any hand-edit to a prompt
+  // file that is not first a canon edit turns this red.
+  const canonLines = readFileSync('ANTENNA_BLUEPRINT.md', 'utf8').split('\n')
+  const fenceAfter = (header: string): string | null => {
+    const start = canonLines.findIndex((l) => l.startsWith(header))
+    if (start < 0) return null
+    const open = canonLines.findIndex((l, i) => i > start && l === '```')
+    const close = canonLines.findIndex((l, i) => i > open && l === '```')
+    if (open < 0 || close < 0) return null
+    return canonLines.slice(open + 1, close).join('\n') + '\n'
+  }
+  for (const [file, header] of [
+    ['prompts/prescore_v1.md', '## 6.1'],
+    ['prompts/score_v1.md', '## 6.2'],
+  ] as const) {
+    const canon = fenceAfter(header)
+    const onDisk = readFileSync(file, 'utf8')
+    assert(`${file} matches the ${header} fence byte-for-byte`, canon !== null && onDisk === canon,
+      canon === null ? 'fence not found in canon' : `differs at byte ${[...onDisk].findIndex((ch, i) => ch !== canon[i])}`)
+  }
+  const scorePrompt = readFileSync('prompts/score_v1.md', 'utf8')
+  assert('score_v1.md still carries the {FEW_SHOT_BLOCK} slot', scorePrompt.includes('{FEW_SHOT_BLOCK}'))
+}
+
+// 11. The few-shot loop (Part 6.5): balanced, bounded, approve/reject only.
+section('11. few-shot loop properties (Part 6.5)')
+{
+  const probePath = '/tmp/antenna-fewshot-probe.db'
+  for (const suffix of ['', '-wal', '-shm']) rmSync(probePath + suffix, { force: true })
+  runMigrations(probePath)
+  const p = openSqlite(probePath)
+  const at = new Date().toISOString()
+  // 8 approves, 2 rejects, 1 bank, 1 flag — the block must balance, cap, and
+  // exclude the non-training decisions.
+  const mk = p.prepare(
+    "INSERT INTO candidates (handle, source, first_seen, bio, follower_count, tier, score, created_at, updated_at) VALUES (?, 'check', ?, ?, 3000, 'A', 80, ?, ?)",
+  )
+  const rat = p.prepare('INSERT INTO ratifications (candidate_id, decision, reason, at) VALUES (?, ?, ?, ?)')
+  for (let i = 0; i < 12; i++) {
+    const info = mk.run(`fewshot.probe.${i}`, at, `probe bio ${i}`, at, at)
+    const decision = i < 8 ? 'approve' : i < 10 ? 'reject' : i === 10 ? 'bank' : 'flag'
+    rat.run(Number(info.lastInsertRowid), decision, decision === 'reject' ? 'not-selling' : `reason ${i}`, at)
+  }
+  const block = buildFewShotBlock(p)
+  const approves = (block.match(/APPROVED @/g) ?? []).length
+  const rejects = (block.match(/REJECTED @/g) ?? []).length
+  assert('block balances: 5 approves despite 8 available', approves === 5, `${approves}`)
+  assert('block keeps both rejects', rejects === 2, `${rejects}`)
+  assert('bank and flag never train the scorer', !block.includes('fewshot.probe.10') && !block.includes('fewshot.probe.11'))
+  assert("operator's reasons are carried into the examples", block.includes('not-selling'))
+  assert('an empty table yields an empty block', buildFewShotBlock(openProbeEmpty()) === '')
+  function openProbeEmpty() {
+    p.exec('DELETE FROM ratifications')
+    return p
+  }
+  p.close()
+  for (const suffix of ['', '-wal', '-shm']) rmSync(probePath + suffix, { force: true })
+}
+
+// 12. Budget caps halt the pipeline (Law 6 / Part X).
+section('12. budget caps live in code and halt (Law 6, Part X)')
+{
+  const probePath = '/tmp/antenna-budget-probe.db'
+  for (const suffix of ['', '-wal', '-shm']) rmSync(probePath + suffix, { force: true })
+  runMigrations(probePath)
+  const p = openSqlite(probePath)
+  const halted = (fn: () => void): string | null => {
+    try { fn(); return null } catch (e) { return (e as Error).message }
+  }
+  const spendRow = p.prepare('INSERT INTO spend (at, category, amount, run_ref, note) VALUES (?, ?, ?, ?, ?)')
+  const at = new Date().toISOString()
+
+  spendRow.run(at, 'llm', CAPS.llm - 0.01, 'check', 'fill llm cap')
+  const llmHalt = halted(() => ensureBudget('llm', 0.05, p))
+  assert('llm category cap halts before the call', llmHalt !== null && llmHalt.includes('BUDGET HALT'), llmHalt ?? 'no halt')
+  assert('under-cap calls pass', halted(() => ensureBudget('llm', 0.005, p)) === null)
+
+  p.exec('DELETE FROM spend')
+  spendRow.run(at, 'actors', CAPS.total - 0.01, 'check', 'simulated ledger overage')
+  const totalHalt = halted(() => ensureBudget('llm', 0.05, p))
+  assert('total campaign cap halts as the backstop', totalHalt !== null && totalHalt.includes(String(CAPS.total)), totalHalt ?? 'no halt')
+  p.close()
+  for (const suffix of ['', '-wal', '-shm']) rmSync(probePath + suffix, { force: true })
+}
+
 sqlite.close()
 
 console.log(`\n${failures === 0 ? 'CHECK GREEN' : `CHECK RED — ${failures} failure(s)`}${warnings ? ` · ${warnings} warning(s)` : ''}`)
-if (failures === 0) console.log('(npm run check chains check:golden next — Part 2.6)')
+if (failures === 0) console.log('(npm run check chains check:canon and check:golden next — Part 2.6)')
 process.exit(failures === 0 ? 0 : 1)

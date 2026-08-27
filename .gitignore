@@ -37,3 +37,6 @@ antenna.db*
 
 # typescript
 *.tsbuildinfo
+
+# real-person profile packets for the manual provider (Law 5 hygiene)
+/profiles

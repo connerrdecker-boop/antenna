@@ -3,13 +3,13 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
 const LIVE = [
+  { href: '/ratify', label: 'Ratify' },
   { href: '/pipeline', label: 'Pipeline' },
   { href: '/add', label: 'Add' },
 ]
 
 /** Routes the blueprint reserves for later phases — shown so the cockpit's shape is legible. */
 const PLANNED = [
-  { label: 'Ratify', phase: 'A2' },
   { label: 'Metrics', phase: 'A4' },
   { label: 'Settings', phase: 'A3' },
 ]

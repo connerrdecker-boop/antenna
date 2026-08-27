@@ -10,6 +10,12 @@
  *   no_response -> replied    a ghost who answers late; the funnel resumes
  *   banked ------> qualified  wave-three activation of banked inventory
  *
+ * Ratify-undo edges (Part VII: `u` undo last — pending ratification of the
+ * mechanism): the queue's undo must return a mis-keyed candidate to `sourced`.
+ *   qualified -> sourced · rejected -> sourced · banked -> sourced
+ * Ratify-queue undo only, immediately after the erroneous keystroke — never a
+ * general demotion path.
+ *
  * `rejected` = WE disqualified.  `declined` = THEY said no.  Never conflate.
  *
  * This object is the single source of truth: db/enforcement.ts compiles it into
@@ -22,7 +28,8 @@ export const TRANSITIONS: Record<Status, readonly Status[]> = {
   // Ratify queue is the only door out of `sourced` (Law 10).
   sourced: ['qualified', 'banked', 'rejected'],
   // "declined (they said no, any stage)" — every live funnel stage can decline.
-  qualified: ['dmed', 'declined'],
+  // `sourced` is the ratify-undo edge (Part VII `u`), not a demotion path.
+  qualified: ['dmed', 'declined', 'sourced'],
   dmed: ['replied', 'no_response', 'declined'],
   replied: ['call_booked', 'declined'],
   call_booked: ['demo_given', 'declined'],
@@ -32,15 +39,38 @@ export const TRANSITIONS: Record<Status, readonly Status[]> = {
   // answers late has no legal move and banked inventory is dead stock (Law 7).
   // Both are manual, drawer-only moves — nothing automated may take them.
   no_response: ['replied'],
-  banked: ['qualified'],
+  banked: ['qualified', 'sourced'],
+  // Terminal for the funnel, except the ratify-undo edge (Part VII `u`).
+  rejected: ['sourced'],
   // Terminal states.
   signed: [],
   declined: [],
-  rejected: [],
 }
 
+/**
+ * Edges reserved for the ratify queue's `u` (Part VII). Legal in the graph —
+ * the DB trigger must allow the undo — but never OFFERED anywhere else: the
+ * drawer showing "→ Sourced" on a rejected candidate would turn an undo
+ * mechanism into a general demotion path.
+ */
+export const RATIFY_UNDO_EDGES: ReadonlyArray<readonly [Status, Status]> = [
+  ['qualified', 'sourced'],
+  ['rejected', 'sourced'],
+  ['banked', 'sourced'],
+]
+
+export function isRatifyUndoEdge(from: Status, to: Status): boolean {
+  return RATIFY_UNDO_EDGES.some(([f, t]) => f === from && t === to)
+}
+
+/** What the pipeline drawer offers: the graph minus the ratify-undo edges. */
+export function drawerTransitions(from: Status): readonly Status[] {
+  return TRANSITIONS[from].filter((to) => !isRatifyUndoEdge(from, to))
+}
+
+/** Terminal AS SEEN FROM THE DRAWER — `rejected` keeps only its undo edge. */
 export const TERMINAL_STATUSES: readonly Status[] =
-  STATUSES.filter((s) => TRANSITIONS[s].length === 0)
+  STATUSES.filter((s) => drawerTransitions(s).length === 0)
 
 export function canTransition(from: Status, to: Status): boolean {
   return TRANSITIONS[from]?.includes(to) ?? false

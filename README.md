@@ -24,12 +24,12 @@ wall at all.
 | Phase | Scope | State |
 |---|---|---|
 | **A1** | Spine + Track — schema, `/pipeline`, `/add`, check suite, backup | ✅ built |
-| A2 | Score + Ratify + golden set | not started |
+| **A2** | Score + Ratify — pipeline, prompts, few-shot loop, `/ratify` | ✅ build half done · calibration + golden set pending |
 | A3 | Harvest adapters | not started |
 | A4 | Metrics + the measured run | not started |
 
-Routes for later phases (`/ratify`, `/metrics`, `/settings`) are shown greyed in the nav so the
-cockpit's shape is legible; they are not built yet.
+Routes for later phases (`/metrics`, `/settings`) are shown greyed in the nav so the cockpit's
+shape is legible; they are not built yet.
 
 ## Setup
 
@@ -43,13 +43,18 @@ npm run dev         # http://localhost:3000
 `npm run migrate` on its own is only needed after you edit the schema. Seeding is optional — skip
 it and start from an empty pipeline.
 
-`.env.local` (gitignored, never committed, never logged) — not needed until A2:
+`.env.local` (gitignored, never committed, never logged) — `ANTHROPIC_API_KEY` is needed the
+moment you score; without it the pipeline enriches, then halts with instructions:
 
 ```
-ANTHROPIC_API_KEY=...   # A2: pre-score + full score
+ANTHROPIC_API_KEY=...   # A2: pre-score (claude-haiku-4-5) + full score (claude-sonnet-4-6)
 SERPER_API_KEY=...      # A3: seller-exhaust SERP queries
 APIFY_TOKEN=...         # A3: no-login IG data actors
 ```
+
+Until the A3 actor lands, enrichment reads profile packets from `pipeline/fixtures/profiles.json`
+(fake, committed) and `./profiles/*.json` (real, gitignored — drop hand-assembled packets there
+for the calibration run).
 
 ## Scripts
 
@@ -63,6 +68,7 @@ APIFY_TOKEN=...         # A3: no-login IG data actors
 | `npm run check:golden` | Scoring regression (Part 6.6). PENDING until A2. |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run backup` | Timestamped copy to `~/Backups/antenna/` |
+| `npm run pipeline` | Enrich → pre-score → score everything `sourced`. `-- --provider=actor` halts until A3. |
 | `npm run db:generate` | Generate a migration after editing `db/schema.ts` |
 
 **Never hand-edit the database.** Change `db/schema.ts`, run `npm run db:generate`, then

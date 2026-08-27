@@ -1,0 +1,62 @@
+[
+  {
+    "handle": "pipe.test.ana",
+    "name": "Ana Kowalczyk",
+    "bio": "Online strength + nutrition coach · Queens NYC · 1:1 remote · DM 'START' to apply · 2 spots left",
+    "follower_count": 3650,
+    "captions": [
+      "Client spotlight: 14 weeks, +40lb on her deadlift, all remote. DM 'START' if you want in.",
+      "The 3 mistakes I see in every self-written program. Save this one.",
+      "2 spots opening for March 1:1 coaching. DM 'START' — serious applicants only.",
+      "Full day of eating while cutting. Macros in caption.",
+      "Q&A reel: how I program deloads for busy parents.",
+      "Why your warm-up is wasting 20 minutes. Comment 'WARM' for the free guide."
+    ],
+    "posts_30d": 7,
+    "format_mix": { "reel": 0.55, "carousel": 0.3, "image": 0.15 },
+    "engagement_proxy": 0.048,
+    "tags": ["#nycfitnesscoach", "#queensfitness"],
+    "link_url": "https://stan.store/anakcoaching",
+    "link_contents": "Ana K Coaching — remote strength and nutrition coaching for busy New Yorkers. 1:1 Coaching — $329/mo, 12-week minimum: weekly check-ins, custom programming, macro coaching, unlimited DM support. The Warm-Up Fix — free guide. Apply: tap below, then DM me the word START on Instagram and I will send the application. Payment via Stripe or Venmo. Testimonials: 'Best money I have spent on myself' — Dana R. 'Down 18lb and stronger than ever' — Mike P. Based in Queens, NYC — clients worldwide. Instagram: @pipe.test.ana"
+  },
+  {
+    "handle": "pipe.test.gymbrand",
+    "name": "IronWorks Gym",
+    "bio": "Voted best gym in Tampa 2025 · 3 locations · day passes · student discounts",
+    "follower_count": 42000,
+    "captions": [
+      "New squat racks just landed at our Westshore location!",
+      "Member of the month: congrats Tony!",
+      "Holiday hours this weekend.",
+      "Day passes now bookable online.",
+      "Our smoothie bar menu just got an upgrade.",
+      "Group class schedule for January is live."
+    ],
+    "posts_30d": 14,
+    "format_mix": { "image": 0.7, "reel": 0.3 },
+    "engagement_proxy": 0.006,
+    "tags": ["#tampagym"],
+    "link_url": "https://ironworkstampa.com",
+    "link_contents": "IronWorks Gym Tampa — three locations. Memberships from $59/mo. Day passes $15. Group classes included with membership. Personal training available at all locations, ask at the front desk. Student and military discounts. Book a tour online. Follow us on Instagram @pipe.test.gymbrand. Careers: we are hiring trainers."
+  },
+  {
+    "handle": "pipe.test.mia",
+    "name": "Camila Duarte",
+    "bio": "Miami-based online coach 🌴 fat loss for women 30+ · comment 'LEAN' for my guide · apply below",
+    "follower_count": 8900,
+    "captions": [
+      "Comment 'LEAN' and I will send you the exact guide my clients start with.",
+      "Client win: -22lb in 16 weeks without giving up cafecito. Applications open.",
+      "3 protein swaps for Miami summers.",
+      "Why 1200-calorie plans keep failing you. Comment 'LEAN'.",
+      "Beach workout reel — save for later.",
+      "Last call: 3 coaching spots for the spring cohort. Application in bio."
+    ],
+    "posts_30d": 9,
+    "format_mix": { "reel": 0.65, "carousel": 0.25, "image": 0.1 },
+    "engagement_proxy": 0.057,
+    "tags": ["#miamifitnesscoach", "#brickell"],
+    "link_url": "https://linktr.ee/camilalean",
+    "link_contents": "Camila Duarte Coaching. Spring cohort applications open. 1:1 Online Coaching — $297/mo: custom training, nutrition coaching, weekly video check-ins, DM support Monday-Friday. The LEAN Starter Guide — free download. How it works: fill the application, then we talk in your Instagram DMs before anything is charged. Klarna available for 12-week upfront. Based in Miami FL, coaching women everywhere. IG: @pipe.test.mia — TikTok: @camilaleanfit"
+  }
+]

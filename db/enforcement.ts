@@ -61,6 +61,7 @@ function candidateRowGuards(): string[] {
       "NEW.status = 'signed' AND (NEW.loi_tier IS NULL OR trim(NEW.loi_tier) = '')",
       'signed requires loi_tier (Part 8.2)',
     ),
+    guard('NEW.score_failed NOT IN (0, 1)', 'score_failed is a 0/1 flag (Part 6.2)'),
   ]
 }
 

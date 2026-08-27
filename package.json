@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "migrate": "tsx scripts/migrate.ts",
     "seed": "tsx scripts/seed.ts",
+    "pipeline": "tsx scripts/pipeline.ts",
     "check": "tsx scripts/check.ts && npm run --silent check:canon && npm run --silent check:golden",
     "check:golden": "tsx scripts/check-golden.ts",
     "backup": "tsx scripts/backup.ts",

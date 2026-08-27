@@ -1,0 +1,1 @@
+ALTER TABLE `candidates` ADD `score_failed` integer DEFAULT 0 NOT NULL;

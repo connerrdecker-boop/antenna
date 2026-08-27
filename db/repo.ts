@@ -13,7 +13,7 @@ import { STATUSES } from './enums'
 import { parseJsonArray, parseJsonObject, type Extracted } from './json'
 import { candidates, outreachLog, ratifications, statusHistory } from './schema'
 import { igUrlFor, normalizeHandle, normalizeLinkUrl } from '@/lib/handle'
-import { assertTransition, FUNNEL_ORDER, STATUS_PRIORITY, TRANSITIONS } from '@/lib/status'
+import { assertTransition, drawerTransitions, FUNNEL_ORDER, STATUS_PRIORITY } from '@/lib/status'
 
 export const nowIso = () => new Date().toISOString()
 
@@ -153,7 +153,8 @@ export function getCandidateDetail(id: number): CandidateDetail | null {
     history,
     outreach,
     ratifications: rats,
-    legalTransitions: TRANSITIONS[candidate.status],
+    // Drawer moves only — the ratify-undo edges belong to the queue's `u` key.
+    legalTransitions: drawerTransitions(candidate.status),
     daysInStatus: daysSince(history[0]?.at ?? candidate.firstSeen),
     linkTwins,
   }
@@ -336,4 +337,165 @@ export function setNextActionDate(id: number, date: string | null): void {
   getDb().update(candidates)
     .set({ nextActionDate: date?.trim() ? date : null, updatedAt: nowIso() })
     .where(eq(candidates.id, id)).run()
+}
+
+// ---------------------------------------------------------------- ratify (Part VII)
+
+export type RatifyCard = {
+  id: number
+  handle: string
+  igUrl: string | null
+  name: string | null
+  tier: Tier
+  score: number | null
+  preScore: number | null
+  followerCount: number | null
+  metro: Metro | null
+  metroConfidence: number | null
+  bio: string | null
+  hookDraft: string | null
+  evidence: string[]
+  stackSignals: string[]
+  extracted: Extracted | null
+  linkUrl: string | null
+  linkDomain: string | null
+  source: string
+  /** Latest flag note, when the operator pressed f on this one earlier. */
+  flagged: boolean
+}
+
+/**
+ * The queue: everything scored and still sourced, best first. X-tier rows ride
+ * at the back — they need a human `n` to become `rejected`, or they clog
+ * `sourced` forever; blasting through them is fast by design.
+ */
+export function listRatifyQueue(): RatifyCard[] {
+  const sqlite = getSqlite()
+  const rows = sqlite
+    .prepare(
+      `SELECT c.id, c.handle, c.ig_url, c.name, c.tier, c.score, c.pre_score,
+              c.follower_count, c.metro, c.metro_confidence, c.bio, c.hook_draft,
+              c.evidence, c.stack_signals, c.extracted, c.link_url, c.link_domain, c.source,
+              EXISTS(
+                SELECT 1 FROM ratifications r
+                WHERE r.candidate_id = c.id AND r.decision = 'flag'
+              ) AS flagged
+       FROM candidates c
+       WHERE c.status = 'sourced' AND c.tier IS NOT NULL AND c.score_failed = 0
+       ORDER BY CASE c.tier WHEN 'A' THEN 0 WHEN 'B' THEN 1 WHEN 'C' THEN 2 ELSE 3 END,
+                c.score DESC, c.handle`,
+    )
+    .all() as Array<Record<string, unknown>>
+
+  return rows.map((r) => ({
+    id: r.id as number,
+    handle: r.handle as string,
+    igUrl: r.ig_url as string | null,
+    name: r.name as string | null,
+    tier: r.tier as Tier,
+    score: r.score as number | null,
+    preScore: r.pre_score as number | null,
+    followerCount: r.follower_count as number | null,
+    metro: r.metro as Metro | null,
+    metroConfidence: r.metro_confidence as number | null,
+    bio: r.bio as string | null,
+    hookDraft: r.hook_draft as string | null,
+    evidence: parseJsonArray(r.evidence as string | null),
+    stackSignals: parseJsonArray(r.stack_signals as string | null),
+    extracted: parseJsonObject<Extracted>(r.extracted as string | null),
+    linkUrl: r.link_url as string | null,
+    linkDomain: r.link_domain as string | null,
+    source: r.source as string,
+    flagged: Boolean(r.flagged),
+  }))
+}
+
+/** Where each ratify decision sends a candidate (Part VII / Part 8.2). */
+const DECISION_TARGET: Record<Decision, Status | null> = {
+  approve: 'qualified',
+  reject: 'rejected',
+  bank: 'banked',
+  flag: null, // a closer look — the candidate stays in the queue
+}
+
+export type RatifyApplied = { ratificationId: number; movedTo: Status | null }
+
+/**
+ * One keystroke = one ratifications row (the training data, Part 6.5) + the
+ * status move the graph prescribes — atomically. A crash between the two would
+ * otherwise leave a decision that trains the scorer but never happened.
+ */
+export function applyRatifyDecision(
+  candidateId: number,
+  decision: Decision,
+  reason: string | null,
+): RatifyApplied {
+  const sqlite = getSqlite()
+  const run = sqlite.transaction((): RatifyApplied => {
+    const row = sqlite
+      .prepare("SELECT id, status, tier FROM candidates WHERE id = ?")
+      .get(candidateId) as { id: number; status: Status; tier: Tier | null } | undefined
+    if (!row) throw new Error(`candidate ${candidateId} not found`)
+    if (row.status !== 'sourced') {
+      throw new Error(`only sourced candidates are in the queue — this one is ${row.status}`)
+    }
+    if (row.tier === null) throw new Error('unscored candidates cannot be ratified')
+    if (decision === 'reject' && !reason) {
+      throw new Error('reject needs a reason — it is the training signal (Part 6.5)')
+    }
+
+    const at = nowIso()
+    const info = sqlite
+      .prepare('INSERT INTO ratifications (candidate_id, decision, reason, at) VALUES (?, ?, ?, ?)')
+      .run(candidateId, decision, reason, at)
+
+    const target = DECISION_TARGET[decision]
+    if (target) transitionStatus(candidateId, target, { note: `ratify ${decision}${reason ? `: ${reason}` : ''}` })
+    return { ratificationId: Number(info.lastInsertRowid), movedTo: target }
+  })
+  return run()
+}
+
+/**
+ * Part VII `u` — undo last. Two effects, both deliberate:
+ *   1. The erroneous ratification row is DELETED. The table is the few-shot
+ *      training data (Part 6.5); a mis-keystroke left in place would train the
+ *      scorer on a decision Conner never made.
+ *   2. The status move is reverted along the ratify-undo edge, which writes a
+ *      status_history row like every transition — the history keeps the truth
+ *      that the round-trip happened.
+ * Guarded: only the candidate's NEWEST ratification can be undone, and only
+ * while the status still matches what that decision produced.
+ */
+export function undoRatifyDecision(candidateId: number, ratificationId: number): void {
+  const sqlite = getSqlite()
+  const run = sqlite.transaction(() => {
+    const rat = sqlite
+      .prepare('SELECT id, decision FROM ratifications WHERE id = ? AND candidate_id = ?')
+      .get(ratificationId, candidateId) as { id: number; decision: Decision } | undefined
+    if (!rat) throw new Error('that ratification no longer exists')
+
+    const newest = sqlite
+      .prepare('SELECT id FROM ratifications WHERE candidate_id = ? ORDER BY id DESC LIMIT 1')
+      .get(candidateId) as { id: number }
+    if (newest.id !== rat.id) {
+      throw new Error('only the most recent decision on a candidate can be undone')
+    }
+
+    const target = DECISION_TARGET[rat.decision]
+    if (target) {
+      const row = sqlite.prepare('SELECT status FROM candidates WHERE id = ?').get(candidateId) as
+        | { status: Status }
+        | undefined
+      if (!row) throw new Error(`candidate ${candidateId} not found`)
+      if (row.status !== target) {
+        throw new Error(
+          `cannot undo: the candidate has moved on to ${row.status} since that decision`,
+        )
+      }
+      transitionStatus(candidateId, 'sourced', { note: `ratify undo (${rat.decision})` })
+    }
+    sqlite.prepare('DELETE FROM ratifications WHERE id = ?').run(rat.id)
+  })
+  run()
 }

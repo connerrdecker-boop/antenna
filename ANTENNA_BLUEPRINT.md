@@ -18,9 +18,19 @@
 | Campaign | NYC + South Florida first · goal 20–25 signed LOIs, ≥8–10 at tier T2/T3 · **Ashok's gate stays 10** |
 | Budget | Hard cap **$250** total external spend, enforced in code |
 | Timeline | A1–A2 evenings post-Friday · A3 weekend · A4 (hour of truth) before wave one · wave one launches after Christopher confirms |
-| Build state | **A1 shipped** · A2–A4 not started |
+| Build state | **A1 shipped** · **A2 build half shipped** (calibration + golden set pending) · A3–A4 not started |
 
 ## Phase log
+
+**A2 — Score + Ratify, build half · 2026-08-27 · shipped; calibration awaits the operator.** Deviations below are PENDING ratification.
+
+*Delivered*: Part V enrich behind a provider interface (fixture/manual now, actor stubbed at a marked A3 wiring point; every enrichment writes an observation) · Part VI verbatim — `prompts/prescore_v1.md` and `prompts/score_v1.md` extracted programmatically from this document's 6.1/6.2 fences, `claude-haiku-4-5` / `claude-sonnet-4-6`, temp 0, fence-strip + one retry + `score_failed` flag, `score_prompt_version` stored · the Part 6.5 few-shot builder (≤10, balanced approve/reject, reasons carried) · Part X budget gates before every paid call, actual spend logged from API usage · `/ratify` per Part VII with the full keyboard (y/n/b/f/j/k/u), reason picker, every keystroke a `ratifications` row · `npm run pipeline`.
+
+*Missing key behaviour*: without `ANTHROPIC_API_KEY` the pipeline completes enrichment, then halts at the scoring step with instructions naming exactly what to add. Never a crash, never a fake score.
+
+*Verification*: 71 check assertions (new: prompts byte-identical to this document's fences · few-shot balance/exclusion properties · llm-cap and total-cap halts) · 19-assertion `/ratify` browser E2E · pipeline halt paths exercised live (no key · actor stub · both budget caps).
+
+*Inventions pending ratification*: ratify-undo edges `qualified/rejected/banked → sourced` (Part VII's `u` requires a way back; queue-only, never offered in the drawer) · undo deletes the erroneous `ratifications` row (a mis-keystroke must not train the few-shot loop) while `status_history` keeps the round-trip · `score_failed` as a column (the flag Part 6.2 itself demands) · bootstrap enrichment for bio-less manual adds (Part 4d's "full enrich/score pipe" cannot start from nothing) · RULES arithmetic recomputed server-side, model disagreement loses · `{NYC metro}`/`{South Florida}` braces in score_v1 sent verbatim (only `{FEW_SHOT_BLOCK}` is a substitution slot — ratify whether metro terms should inject from config) · prescore kill_reasons preserved in `evidence` for sub-threshold candidates · X-tier rows ride at the back of the ratify queue so one `n` clears them.
 
 **A1 — Spine + Track · 2026-08-27 · shipped.** Branch `claude/antenna-blueprint-setup-ofcrkq`, pending merge to main. Commits: `4a38a17` blueprint onboarded · `6776aae` spine + track · `0b90d58` enum + handle tripwires hardened · `c17b75b` ratifications + canon update · `2a913d8` canon structure guard.
 

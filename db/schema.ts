@@ -46,6 +46,12 @@ export const candidates = sqliteTable('candidates', {
   stackSignals: text('stack_signals'),
   /** json: { name, offers[{type,price?}], lead_magnet? } */
   extracted: text('extracted'),
+  /**
+   * Part 6.2: on invalid scorer JSON after one retry, "flag score_failed for
+   * manual review". Part III's column list predates that flag; the column is a
+   * documented allowance in the check suite, pending ratification into canon.
+   */
+  scoreFailed: integer('score_failed').notNull().default(0),
   status: text('status', { enum: STATUSES }).notNull().default('sourced'),
   followupCount: integer('followup_count').notNull().default(0),
   loiTier: text('loi_tier', { enum: LOI_TIERS }),
