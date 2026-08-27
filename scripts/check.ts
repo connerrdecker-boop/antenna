@@ -10,7 +10,9 @@ import { readFileSync } from 'node:fs'
 import { rmSync } from 'node:fs'
 import { CAPS } from '@/config/limits'
 import { DB_PATH, openSqlite } from '@/db/connection'
-import { STATUSES, type Status } from '@/db/enums'
+import {
+  DECISIONS, LINK_FETCH_STATUSES, LOI_TIERS, METROS, STATUSES, TIERS, type Status,
+} from '@/db/enums'
 import { ENFORCEMENT_TRIGGERS } from '@/db/enforcement'
 import { listCandidates } from '@/db/repo'
 import { canTransition } from '@/lib/status'
@@ -78,16 +80,35 @@ section('1. schema validates (Part III)')
   const tables = new Set(q<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table'").map((r) => r.name))
   for (const table of Object.keys(CANON_COLUMNS)) {
     if (!tables.has(table)) { assert(`table ${table} exists`, false); continue }
-    const cols = new Set(q<{ name: string }>(`PRAGMA table_info(${table})`).map((r) => r.name))
+    const info = q<{ name: string; dflt_value: string | null }>(`PRAGMA table_info(${table})`)
+    const cols = new Set(info.map((r) => r.name))
     const missing = CANON_COLUMNS[table].filter((c) => !cols.has(c))
     assert(`table ${table} carries every Part III column`, missing.length === 0, `missing: ${missing.join(', ')}`)
+    // `id` is the one documented invention: a surrogate PK on the log tables.
+    const extra = [...cols].filter((c) => !CANON_COLUMNS[table].includes(c) && c !== 'id')
+    assert(`table ${table} carries no columns Part III does not name`, extra.length === 0, `extra: ${extra.join(', ')}`)
   }
-  const enumsSrc = readFileSync('db/enums.ts', 'utf8')
-  for (const [name, values] of Object.entries(CANON_ENUMS)) {
-    const present = values.every((v) => enumsSrc.includes(`'${v}'`))
-    assert(`enum ${name} strings verbatim`, present, `expected ${values.join(' | ')}`)
+  // Part III names two defaults explicitly.
+  {
+    const info = q<{ name: string; dflt_value: string | null }>('PRAGMA table_info(candidates)')
+    const dflt = (c: string) => info.find((r) => r.name === c)?.dflt_value ?? null
+    assert("candidates.status defaults to 'sourced'", dflt('status') === "'sourced'", `got ${dflt('status')}`)
+    assert('candidates.followup_count defaults to 0', String(dflt('followup_count')) === '0', `got ${dflt('followup_count')}`)
   }
-  assert('STATUSES matches Part III exactly', JSON.stringify([...STATUSES]) === JSON.stringify(CANON_ENUMS.status))
+  // Structural equality against the LIVE arrays, not a substring scan of the
+  // source text: a scan is satisfied by the string appearing anywhere in the
+  // file, so it cannot see a dropped value that also exists in another enum,
+  // and can never see an invented extra one.
+  const LIVE_ENUMS: Record<string, readonly string[]> = {
+    status: STATUSES, tier: TIERS, loi_tier: LOI_TIERS,
+    metro: METROS, decision: DECISIONS, link_fetch_status: LINK_FETCH_STATUSES,
+  }
+  for (const [name, canon] of Object.entries(CANON_ENUMS)) {
+    const live = LIVE_ENUMS[name]
+    assert(`enum ${name} matches Part III exactly (order, spelling, no extras)`,
+      JSON.stringify([...(live ?? [])]) === JSON.stringify(canon),
+      `code has ${JSON.stringify(live ?? null)}, canon is ${JSON.stringify(canon)}`)
+  }
 
   const triggers = new Set(q<{ name: string }>("SELECT name FROM sqlite_master WHERE type='trigger'").map((r) => r.name))
   const missingTriggers = ENFORCEMENT_TRIGGERS.filter((t) => !triggers.has(t))
@@ -188,8 +209,13 @@ section('6. observations are append-only — no UPDATE path exists (Law 9)')
     p.exec(`INSERT INTO candidates (handle,source,first_seen,created_at,updated_at) VALUES ('probe','check','${at}','${at}','${at}')`)
     p.exec("UPDATE candidates SET status='signed', loi_tier='t1' WHERE handle='probe'")
   }))
-  assert('raw SQL cannot insert an uppercase handle', blocked(() =>
-    p.exec(`INSERT INTO candidates (handle,source,first_seen,created_at,updated_at) VALUES ('Probe2','check','${at}','${at}','${at}')`)))
+  const rawInsert = (h: string) => () =>
+    p.exec(`INSERT INTO candidates (handle,source,first_seen,created_at,updated_at) VALUES ('${h}','check','${at}','${at}','${at}')`)
+  assert('raw SQL cannot insert an ASCII-uppercase handle', blocked(rawInsert('Probe2')))
+  // SQLite's lower() folds ASCII only — the guard must be a character whitelist.
+  assert('raw SQL cannot insert a NON-ASCII uppercase handle', blocked(rawInsert('Ärnold')))
+  assert('raw SQL cannot insert a handle with a hyphen or space', blocked(rawInsert('probe-three')))
+  assert('raw SQL cannot insert an over-length handle', blocked(rawInsert('p'.repeat(31))))
   assert('a raw status UPDATE still writes history', (() => {
     p.exec("UPDATE candidates SET status='qualified' WHERE handle='probe'")
     const h = p.prepare("SELECT count(*) c FROM status_history WHERE to_status='qualified'").get() as { c: number }

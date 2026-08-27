@@ -31,8 +31,12 @@ const guard = (cond: string, msg: string) =>
 function candidateRowGuards(): string[] {
   return [
     guard("NEW.handle IS NULL OR trim(NEW.handle) = ''", 'handle is required'),
-    guard('NEW.handle <> lower(NEW.handle)', 'handle must be lowercased (Part III: handle is the dedupe key)'),
-    guard("NEW.handle GLOB '*[ @/]*'", 'handle must be bare: no @, spaces or slashes'),
+    // A character whitelist, not `handle <> lower(handle)`: SQLite's lower() folds
+    // ASCII only, so 'Ärnold' would slip past a lower()-based guard and sit in the
+    // table un-normalized, defeating the dedupe key. This mirrors HANDLE_RE in
+    // lib/handle.ts exactly, and subsumes the bare-handle check.
+    guard("NEW.handle GLOB '*[^a-z0-9._]*'", 'handle must be lowercase a-z 0-9 . _ only (Part III: handle is the dedupe key)'),
+    guard('length(NEW.handle) > 30', 'handle must be at most 30 characters'),
     guard("NEW.source IS NULL OR trim(NEW.source) = ''", 'every candidate carries source (Part 2.6)'),
     guard("NEW.first_seen IS NULL OR trim(NEW.first_seen) = ''", 'every candidate carries first_seen (Part 2.6)'),
     guard(`NEW.status NOT IN (${list(STATUSES)})`, 'invalid status (Part III enum)'),
@@ -145,7 +149,7 @@ function triggers(): Trigger[] {
       name: 'observations_guard_insert',
       sql: `CREATE TRIGGER observations_guard_insert BEFORE INSERT ON observations\nBEGIN\n${[
         guard("NEW.handle IS NULL OR trim(NEW.handle) = ''", 'observations.handle is required'),
-        guard('NEW.handle <> lower(NEW.handle)', 'observations.handle must be lowercased'),
+        guard("NEW.handle GLOB '*[^a-z0-9._]*'", 'observations.handle must be lowercase a-z 0-9 . _ only'),
         guard("NEW.source IS NULL OR trim(NEW.source) = ''", 'every observation carries source (Law 4)'),
       ].join('\n')}\nEND;`,
     },
