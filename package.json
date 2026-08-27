@@ -11,10 +11,11 @@
     "typecheck": "tsc --noEmit",
     "migrate": "tsx scripts/migrate.ts",
     "seed": "tsx scripts/seed.ts",
-    "check": "tsx scripts/check.ts && npm run --silent check:golden",
+    "check": "tsx scripts/check.ts && npm run --silent check:canon && npm run --silent check:golden",
     "check:golden": "tsx scripts/check-golden.ts",
     "backup": "tsx scripts/backup.ts",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "check:canon": "tsx scripts/check-canon.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.121.0",
