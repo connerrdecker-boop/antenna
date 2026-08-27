@@ -49,7 +49,7 @@ export const candidates = sqliteTable('candidates', {
   /**
    * Part 6.2: on invalid scorer JSON after one retry, "flag score_failed for
    * manual review". Part III's column list predates that flag; the column is a
-   * documented allowance in the check suite, pending ratification into canon.
+   * documented allowance in the check suite, ratified A2.
    */
   scoreFailed: integer('score_failed').notNull().default(0),
   status: text('status', { enum: STATUSES }).notNull().default('sourced'),

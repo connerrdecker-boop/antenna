@@ -18,11 +18,11 @@
 | Campaign | NYC + South Florida first · goal 20–25 signed LOIs, ≥8–10 at tier T2/T3 · **Ashok's gate stays 10** |
 | Budget | Hard cap **$250** total external spend, enforced in code |
 | Timeline | A1–A2 evenings post-Friday · A3 weekend · A4 (hour of truth) before wave one · wave one launches after Christopher confirms |
-| Build state | **A1 shipped** · **A2 build half shipped** (calibration + golden set pending) · A3–A4 not started |
+| Build state | **A1 shipped** · **A2 build half shipped + ratified** (calibration + golden set pending) · A3–A4 not started |
 
 ## Phase log
 
-**A2 — Score + Ratify, build half · 2026-08-27 · shipped; calibration awaits the operator.** Deviations below are PENDING ratification.
+**A2 — Score + Ratify, build half · 2026-08-27 · shipped and RATIFIED; calibration awaits the operator.** Commits: `18e2385` build half · `+ A2 ratifications + canon update`.
 
 *Delivered*: Part V enrich behind a provider interface (fixture/manual now, actor stubbed at a marked A3 wiring point; every enrichment writes an observation) · Part VI verbatim — `prompts/prescore_v1.md` and `prompts/score_v1.md` extracted programmatically from this document's 6.1/6.2 fences, `claude-haiku-4-5` / `claude-sonnet-4-6`, temp 0, fence-strip + one retry + `score_failed` flag, `score_prompt_version` stored · the Part 6.5 few-shot builder (≤10, balanced approve/reject, reasons carried) · Part X budget gates before every paid call, actual spend logged from API usage · `/ratify` per Part VII with the full keyboard (y/n/b/f/j/k/u), reason picker, every keystroke a `ratifications` row · `npm run pipeline`.
 
@@ -30,7 +30,9 @@
 
 *Verification*: 71 check assertions (new: prompts byte-identical to this document's fences · few-shot balance/exclusion properties · llm-cap and total-cap halts) · 19-assertion `/ratify` browser E2E · pipeline halt paths exercised live (no key · actor stub · both budget caps).
 
-*Inventions pending ratification*: ratify-undo edges `qualified/rejected/banked → sourced` (Part VII's `u` requires a way back; queue-only, never offered in the drawer) · undo deletes the erroneous `ratifications` row (a mis-keystroke must not train the few-shot loop) while `status_history` keeps the round-trip · `score_failed` as a column (the flag Part 6.2 itself demands) · bootstrap enrichment for bio-less manual adds (Part 4d's "full enrich/score pipe" cannot start from nothing) · RULES arithmetic recomputed server-side, model disagreement loses · `{NYC metro}`/`{South Florida}` braces in score_v1 sent verbatim (only `{FEW_SHOT_BLOCK}` is a substitution slot — ratify whether metro terms should inject from config) · prescore kill_reasons preserved in `evidence` for sub-threshold candidates · X-tier rows ride at the back of the ratify queue so one `n` clears them.
+*Ratified into canon (all ten A2 deviations)*: ratify-undo edges `qualified/rejected/banked → sourced` (Part 8.2 above; ratify-surface-only) · drawer-vs-ratify split (`rejected` drawer-terminal, not graph-terminal) · undo deletes the erroneous `ratifications` row while `status_history` keeps the round-trip · `score_failed` column (check allowance beside `id`) · bootstrap enrichment for bio-less manual adds; harvest rows take the gate as written · RULES arithmetic recomputed server-side, model disagreement loses · prescore kill_reasons preserved in `evidence` · X-tier at the back of the queue · `<500 chars = failed` reserved for A3's live fetcher, provider packets stored as-is · flagged rows stay queued with a badge. Plus the decided item: **score_v2** — metro terms injected from config at render time (Part VI note), shipped before calibration so the golden set is built against v2 and never re-scored.
+
+*Pricing measurement (vs Part 6.4's $40–75 estimate)*: measured from the actual prompt files at current first-party rates (haiku-4-5 $1/$5, sonnet-4-6 $3/$15 per MTok): 5,000 pre-scores ≈ $3.75 · 1,500 full scores ≈ $26.69 · campaign total ≈ $30.44, ≈ $35 with a 15% retry pad — **under the estimate's floor**, with ~2× headroom against the $75 llm cap. The estimate stands; no cap change proposed.
 
 **A1 — Spine + Track · 2026-08-27 · shipped.** Branch `claude/antenna-blueprint-setup-ofcrkq`, pending merge to main. Commits: `4a38a17` blueprint onboarded · `6776aae` spine + track · `0b90d58` enum + handle tripwires hardened · `c17b75b` ratifications + canon update · `2a913d8` canon structure guard.
 
@@ -295,6 +297,8 @@ No prose. JSON only.
 ```
 Model `claude-sonnet-4-6`, temp 0. Strip code fences, parse; on invalid JSON retry once, then flag `score_failed` for manual review. Store `score_prompt_version` on the row.
 
+**score_v2 (ratified A2)** = score_v1 with the `{NYC metro}` / `{South Florida}` placeholders rendered from `config/metros.ts` at assembly time, exactly like `{FEW_SHOT_BLOCK}`. The prompt file on disk stays byte-identical to the fence above; metros remain configuration, never prompt text (Part 4.5), so wave three is still just a config block. `npm run check` asserts the rendered prompt carries every metro term from config and leaves no placeholder unrendered.
+
 ## 6.3 Tier semantics
 **A** = DM this week · **B** = DM after A-tier exhausts · **C** = revisit only if funnel starves · **X** = gated out (visible reasons preserved). Metro `other/unknown` with strong everything-else → ratify decision `bank` → status `banked` (wave-three inventory, never waste).
 
@@ -331,9 +335,15 @@ sourced ─(ratify y)→ qualified ─→ dmed ─→ replied ─→ call_booked
 Re-entry edges (ratified A1) — manual, via the drawer only, never automated:
    no_response ─→ replied     a ghost who answers late; the funnel resumes at replied
    banked ─────→ qualified    wave-three activation: banked inventory enters the live funnel
+
+Ratify-undo edges (ratified A2) — the ratify queue's `u` ONLY; the drawer never offers them:
+   qualified ──→ sourced      undo an erroneous `y`
+   rejected ───→ sourced      undo an erroneous `n`
+   banked ─────→ sourced      undo an erroneous `b`
 ```
 - `rejected` = **we** disqualified · `declined` = **they** said no. Never conflate.
-- **Re-entry (canon, ratified A1)**: `no_response → replied` and `banked → qualified` are the only ways back into the live funnel. Without them a late reply has no legal move and `banked` is dead stock — both violations of Law 7, and Part 2.2 forbids hand-editing the DB. Terminal states are exactly three: `signed`, `declined`, `rejected`.
+- **Re-entry (canon, ratified A1)**: `no_response → replied` and `banked → qualified` are the only ways back into the live funnel. Without them a late reply has no legal move and `banked` is dead stock — both violations of Law 7, and Part 2.2 forbids hand-editing the DB.
+- **Ratify-undo (canon, ratified A2)**: Part VII's `u` (undo last) is realized as the three edges above — the only legal mechanism, since Part 2.2 forbids hand-editing the DB. They are **ratify-surface-only**: legal in the graph and in the DB trigger, never offered by the pipeline drawer, so undo can never become a general demotion path. An undo deletes the erroneous `ratifications` row (a mis-keystroke must not train the few-shot loop, Part 6.5) while `status_history` keeps the round-trip. Consequently `rejected` is drawer-terminal but not graph-terminal; the graph-terminal states are `signed` and `declined`.
 - **Follow-up policy (canon)**: exactly **one** follow-up per candidate, 5–7 days after the DM, then `no_response`. Never a third touch — respect *and* account safety. `followup_count` enforces it.
 - `signed` **requires** `loi_tier`: **T1** signature-only · **T2** + stated beta commitment · **T3** + deposit.
 

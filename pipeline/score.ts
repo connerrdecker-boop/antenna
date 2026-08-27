@@ -12,14 +12,34 @@
  */
 import { readFileSync } from 'node:fs'
 import { TIER_CUTS } from '@/config/limits'
+import { METRO_TERMS } from '@/config/metros'
 import { getSqlite } from '@/db/connection'
+import type BetterSqlite3 from 'better-sqlite3'
 import type { Tier } from '@/db/enums'
 import { assembleScorePrompt } from '@/prompts/fewshot'
 import { callJson, MODELS } from './llm'
 import type { ScoreResult } from './types'
 
+/**
+ * score_v2 (ratified A2) = score_v1 with the `{NYC metro}` / `{South Florida}`
+ * placeholders rendered from config/metros.ts. The on-disk prompt file stays
+ * byte-identical to the blueprint's 6.2 fence — like {FEW_SHOT_BLOCK}, the
+ * metro slots are filled at render time, so metros remain CONFIG, not prompt
+ * text (Part 4.5), and wave three is still just a config block.
+ */
 const PROMPT_PATH = 'prompts/score_v1.md'
-export const SCORE_PROMPT_VERSION = 'score_v1'
+export const SCORE_PROMPT_VERSION = 'score_v2'
+
+export function injectMetroTerms(template: string): string {
+  return template
+    .replace('{NYC metro}', `the NYC metro (${METRO_TERMS.nyc.join(', ')})`)
+    .replace('{South Florida}', `South Florida (${METRO_TERMS.sofla.join(', ')})`)
+}
+
+/** The prompt as actually sent: canon text + metro terms + few-shot block. */
+export function renderScorePrompt(sqlite?: BetterSqlite3.Database): string {
+  return assembleScorePrompt(injectMetroTerms(readFileSync(PROMPT_PATH, 'utf8')), sqlite)
+}
 
 const GATE_KEYS = ['sells_online_coaching', 'is_individual_coach', 'alive_30d'] as const
 const DIM_LIMITS = {
@@ -122,8 +142,7 @@ export async function scoreCandidate(
   packet?: { captions?: string[]; tags?: string[] } | null,
 ): Promise<ScoreOutcome> {
   const sqlite = getSqlite()
-  const template = readFileSync(PROMPT_PATH, 'utf8')
-  const system = assembleScorePrompt(template, sqlite)
+  const system = renderScorePrompt(sqlite)
 
   const user = JSON.stringify({
     handle: candidate.handle,

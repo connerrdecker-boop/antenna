@@ -15,9 +15,11 @@ import {
 } from '@/db/enums'
 import { ENFORCEMENT_TRIGGERS } from '@/db/enforcement'
 import { listCandidates } from '@/db/repo'
+import { METRO_TERMS } from '@/config/metros'
 import { normalizeLinkUrl } from '@/lib/handle'
 import { TRANSITIONS } from '@/lib/status'
 import { ensureBudget } from '@/pipeline/lib/budget'
+import { renderScorePrompt, SCORE_PROMPT_VERSION } from '@/pipeline/score'
 import { buildFewShotBlock } from '@/prompts/fewshot'
 import { runMigrations } from './migrate'
 
@@ -55,9 +57,9 @@ const CANON_COLUMNS: Record<string, string[]> = {
 const CANON_TRANSITIONS: Record<string, string[]> = {
   sourced: ['qualified', 'banked', 'rejected'],
   // The `sourced` targets on qualified/rejected/banked are the ratify-undo
-  // edges, transcribed from Part VII's `u` (undo last) requirement — the queue
-  // must be able to return a mis-keyed candidate. Pending ratification into
-  // the Part 8.2 diagram (A2 deviation summary).
+  // edges (Part VII `u`, ratified A2 and written into the Part 8.2 diagram):
+  // the queue must be able to return a mis-keyed candidate. Ratify-surface
+  // only — the drawer never offers them.
   qualified: ['dmed', 'declined', 'sourced'],
   dmed: ['replied', 'no_response', 'declined'],
   replied: ['call_booked', 'declined'],
@@ -122,7 +124,7 @@ section('1. schema validates (Part III)')
     // `id` is the one documented invention: a surrogate PK on the log tables.
     // Documented allowances beyond Part III's lists: `id` (surrogate PK on the
     // log tables, ratified A1) and `score_failed` (the flag Part 6.2 itself
-    // requires — "flag score_failed for manual review" — pending ratification).
+    // requires — "flag score_failed for manual review" — ratified A2).
     const ALLOWED_EXTRA = ['id', 'score_failed']
     const extra = [...cols].filter((c) => !CANON_COLUMNS[table].includes(c) && !ALLOWED_EXTRA.includes(c))
     assert(`table ${table} carries no columns Part III does not name`, extra.length === 0, `extra: ${extra.join(', ')}`)
@@ -401,6 +403,20 @@ section('10. prompts are verbatim canon (Part 6.1 / 6.2)')
   }
   const scorePrompt = readFileSync('prompts/score_v1.md', 'utf8')
   assert('score_v1.md still carries the {FEW_SHOT_BLOCK} slot', scorePrompt.includes('{FEW_SHOT_BLOCK}'))
+  assert('score_v1.md still carries both metro placeholder slots',
+    scorePrompt.includes('{NYC metro}') && scorePrompt.includes('{South Florida}'))
+
+  // score_v2 (ratified A2): the RENDERED prompt — what the model actually
+  // reads — must carry every metro term from config and leave no placeholder
+  // unrendered. Metros stay config, never prompt text (Part 4.5).
+  const rendered = renderScorePrompt(sqlite)
+  const allTerms = [...METRO_TERMS.nyc, ...METRO_TERMS.sofla]
+  const missingTerms = allTerms.filter((t) => !rendered.includes(t))
+  assert(`rendered score prompt carries all ${allTerms.length} metro terms from config/metros.ts`,
+    missingTerms.length === 0, `missing: ${missingTerms.join(', ')}`)
+  const unrendered = ['{NYC metro}', '{South Florida}', '{FEW_SHOT_BLOCK}'].filter((s) => rendered.includes(s))
+  assert('rendered score prompt has no unrendered placeholder braces', unrendered.length === 0, unrendered.join(', '))
+  assert("score_prompt_version is 'score_v2'", SCORE_PROMPT_VERSION === 'score_v2', SCORE_PROMPT_VERSION)
 }
 
 // 11. The few-shot loop (Part 6.5): balanced, bounded, approve/reject only.

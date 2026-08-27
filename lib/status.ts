@@ -10,11 +10,11 @@
  *   no_response -> replied    a ghost who answers late; the funnel resumes
  *   banked ------> qualified  wave-three activation of banked inventory
  *
- * Ratify-undo edges (Part VII: `u` undo last — pending ratification of the
- * mechanism): the queue's undo must return a mis-keyed candidate to `sourced`.
+ * Ratify-undo edges (Part VII `u`, ratified A2): the queue's undo returns a
+ * mis-keyed candidate to `sourced`.
  *   qualified -> sourced · rejected -> sourced · banked -> sourced
- * Ratify-queue undo only, immediately after the erroneous keystroke — never a
- * general demotion path.
+ * Ratify-surface only, immediately after the erroneous keystroke — the drawer
+ * never offers them, so undo can never become a general demotion path.
  *
  * `rejected` = WE disqualified.  `declined` = THEY said no.  Never conflate.
  *
