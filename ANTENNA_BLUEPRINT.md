@@ -13,6 +13,16 @@
 | Campaign | NYC + South Florida first · goal 20–25 signed LOIs, ≥8–10 at tier T2/T3 · **Ashok's gate stays 10** |
 | Budget | Hard cap **$250** total external spend, enforced in code |
 | Timeline | A1–A2 evenings post-Friday · A3 weekend · A4 (hour of truth) before wave one · wave one launches after Christopher confirms |
+| Build state | **A1 shipped** · A2–A4 not started |
+## Phase log
+**A1 — Spine + Track · 2026-08-27 · shipped.** Commits `4a38a17` (blueprint onboarded as canon) · `6776aae` (spine + track) · `0b90d58` (enum + handle tripwires hardened) · `+ A1 ratifications + canon update`. Branch `claude/antenna-blueprint-setup-ofcrkq`, pending merge to main.
+*Delivered*: Part III schema exactly (7 tables, 31 candidate columns, enums verbatim) · Part 8.2 status machine · `/pipeline` (dense table, filters, funnel strip, row drawer) · `/add` (paste + CSV, dedupe on handle) · `npm run check` (Part 2.6) · `npm run backup` · 5 seed fixtures.
+*Design decision*: the blueprint's guarantees are **SQLite triggers generated from `db/enums.ts` + `lib/status.ts` + `config/limits.ts`**, not app-layer checks — so they bind every writer including a raw `sqlite3` shell, and the DB cannot drift from the TypeScript.
+*Verification*: 58 check assertions · 30 browser E2E assertions · 10 CSV cases · 29 handle-normalisation cases · transaction rollback and funnel math verified independently · `tsc` and production build clean.
+*Bugs found and fixed* (6): a Drizzle subquery correlating on an unqualified `"id"` (every row shared one days-in-status) · `/add` splitting prose on spaces into one candidate per word · an in-batch duplicate reported "added" twice · an `overflow-x:auto` wrapper silently breaking the sticky header · the enum "verbatim" check being a vacuous substring scan · a `lower()`-based handle guard that folds ASCII only.
+*Tripwires added after adversarial review* (5): the Part 8.2 graph is now transcribed independently into `scripts/check.ts` (it was imported from the module under test, so graph drift stayed green) · candidates minted mid-funnel are detected · `INSERT OR REPLACE` teleport is blocked at the DB · `transitionStatus` now detects a genuinely missing history trigger instead of overwriting the previous row · a failing probe no longer aborts the suite before it reports.
+*Ratified into canon*: the two re-entry edges in Part 8.2 above · genesis history row on insert · surrogate `id` PKs on log tables · `harvest_runs.status` = `running|ok|failed` · status-priority sort (replied first) · funnel conversions from "ever reached" · font stack over `next/font` · `check:golden` reporting PENDING until A2 fixtures exist.
+*Carries into A2*: `check:golden` is a stub until `golden/set.json` is hand-labeled; `/ratify`, `/metrics`, `/settings` are stubs in the nav.
 ---
 # PART I — IDENTITY, THESIS, AND THE LAWS
 ## 1.1 One breath
@@ -225,8 +235,13 @@ Dense table: handle · tier+score · metro · followers · status · days-in-sta
 sourced ─(ratify y)→ qualified ─→ dmed ─→ replied ─→ call_booked ─→ demo_given ─→ loi_sent ─→ signed
    │(ratify b)→ banked                │└──────────────── declined (they said no, any stage)
    │(ratify n)→ rejected              └→ no_response (after 1 follow-up + 7 more quiet days)
+
+Re-entry edges (ratified A1) — manual, via the drawer only, never automated:
+   no_response ─→ replied     a ghost who answers late; the funnel resumes at replied
+   banked ─────→ qualified    wave-three activation: banked inventory enters the live funnel
 ```
 - `rejected` = **we** disqualified · `declined` = **they** said no. Never conflate.
+- **Re-entry (canon, ratified A1)**: `no_response → replied` and `banked → qualified` are the only ways back into the live funnel. Without them a late reply has no legal move and `banked` is dead stock — both violations of Law 7, and Part 2.2 forbids hand-editing the DB. Terminal states remain exactly three: `signed`, `declined`, `rejected`.
 - **Follow-up policy (canon)**: exactly **one** follow-up per candidate, 5–7 days after the DM, then `no_response`. Never a third touch — respect *and* account safety. `followup_count` enforces it.
 - `signed` **requires** `loi_tier`: **T1** signature-only · **T2** + stated beta commitment · **T3** + deposit.
 ## 8.3 The DM composer (inside the drawer — the tool preps, never sends)

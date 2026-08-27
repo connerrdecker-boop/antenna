@@ -264,7 +264,14 @@ function main() {
       transitionStatus(id, step.to, { note: step.note ?? null, at: ago(step.daysAgo), loiTier: step.loiTier })
     }
     for (const o of f.outreach ?? []) logOutreach(id, o.direction, o.text, ago(o.daysAgo))
+    // Observations are append-only (Law 9) and survive --reset, so a re-seed
+    // must not re-insert the same fixture snapshot: identical readings at one
+    // instant are false data that NOTHING can later remove.
+    const seenObs = sqlite.prepare(
+      'SELECT 1 FROM observations WHERE handle=? AND observed_at=? AND source=?',
+    )
     for (const ob of f.observations ?? []) {
+      if (seenObs.get(f.handle, ago(ob.daysAgo), 'seed fixture')) continue
       recordObservation({
         handle: f.handle,
         observedAt: ago(ob.daysAgo),

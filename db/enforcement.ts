@@ -80,8 +80,17 @@ function triggers(): Trigger[] {
   const rows = candidateRowGuards().join('\n')
   return [
     {
+      // A candidate is BORN sourced (Part IV: the pipeline "inserts as sourced";
+      // Part 8.2 has exactly one entry point). Without this, `INSERT OR REPLACE`
+      // teleports an existing candidate to any status: REPLACE deletes the old
+      // row without firing delete triggers, the FK cascade takes its whole
+      // status_history chain with it, and the genesis trigger then fabricates a
+      // single `NULL -> signed` row in its place. Insert-only, never on UPDATE.
       name: 'candidates_guard_insert',
-      sql: `CREATE TRIGGER candidates_guard_insert BEFORE INSERT ON candidates\nBEGIN\n${rows}\nEND;`,
+      sql: `CREATE TRIGGER candidates_guard_insert BEFORE INSERT ON candidates\nBEGIN\n${rows}\n${guard(
+        "NEW.status <> 'sourced'",
+        'a candidate is born sourced (Part IV / Part 8.2): move it with a transition, never mint it mid-funnel',
+      )}\nEND;`,
     },
     {
       name: 'candidates_guard_update',

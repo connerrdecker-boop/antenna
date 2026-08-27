@@ -15,7 +15,8 @@ import {
 } from '@/db/enums'
 import { ENFORCEMENT_TRIGGERS } from '@/db/enforcement'
 import { listCandidates } from '@/db/repo'
-import { canTransition } from '@/lib/status'
+import { normalizeLinkUrl } from '@/lib/handle'
+import { TRANSITIONS } from '@/lib/status'
 import { runMigrations } from './migrate'
 
 // ---------------------------------------------------------- PART III canon
@@ -41,6 +42,34 @@ const CANON_COLUMNS: Record<string, string[]> = {
   ],
   spend: ['at', 'category', 'amount', 'run_ref', 'note'],
 }
+
+/**
+ * PART 8.2 — the status machine, transcribed from the blueprint by hand.
+ *
+ * This MUST NOT be derived from lib/status.ts: db/enforcement.ts compiles the DB
+ * trigger from that same module, so a check that imports it moves with the code
+ * and can never see graph drift. Everything below is read off the blueprint.
+ */
+const CANON_TRANSITIONS: Record<string, string[]> = {
+  sourced: ['qualified', 'banked', 'rejected'],
+  qualified: ['dmed', 'declined'],
+  dmed: ['replied', 'no_response', 'declined'],
+  replied: ['call_booked', 'declined'],
+  call_booked: ['demo_given', 'declined'],
+  demo_given: ['loi_sent', 'declined'],
+  loi_sent: ['signed', 'declined'],
+  // Re-entry edges, ratified in A1 and written into Part 8.2 as canon.
+  no_response: ['replied'],
+  banked: ['qualified'],
+  // Terminal.
+  signed: [],
+  declined: [],
+  rejected: [],
+}
+
+/** Legality per the CANON copy above — never per the code under test. */
+const canonAllows = (from: string | null, to: string) =>
+  from !== null && (CANON_TRANSITIONS[from] ?? []).includes(to)
 
 const CANON_ENUMS: Record<string, string[]> = {
   status: ['sourced', 'qualified', 'dmed', 'replied', 'no_response', 'call_booked', 'demo_given', 'loi_sent', 'signed', 'declined', 'rejected', 'banked'],
@@ -110,6 +139,16 @@ section('1. schema validates (Part III)')
       `code has ${JSON.stringify(live ?? null)}, canon is ${JSON.stringify(canon)}`)
   }
 
+  // The graph the enforcement trigger is compiled from must equal the canon.
+  // Normalise both key order and edge order: neither carries meaning, but
+  // JSON.stringify is sensitive to both.
+  const normGraph = (g: Record<string, readonly string[]>) =>
+    JSON.stringify(Object.keys(g).sort().map((k) => [k, [...g[k]].sort()]))
+  const liveGraph = normGraph(Object.fromEntries(STATUSES.map((st) => [st, TRANSITIONS[st] ?? []])))
+  const canonGraph = normGraph(CANON_TRANSITIONS)
+  assert('the Part 8.2 transition graph matches the blueprint exactly',
+    liveGraph === canonGraph, `code: ${liveGraph} vs canon: ${canonGraph}`)
+
   const triggers = new Set(q<{ name: string }>("SELECT name FROM sqlite_master WHERE type='trigger'").map((r) => r.name))
   const missingTriggers = ENFORCEMENT_TRIGGERS.filter((t) => !triggers.has(t))
   assert(`all ${ENFORCEMENT_TRIGGERS.length} enforcement triggers installed`, missingTriggers.length === 0, missingTriggers.join(', '))
@@ -144,6 +183,7 @@ section('4. every status change has a status_history row (Part III)')
   let chainBreaks: string[] = []
   let illegal: string[] = []
   let noGenesis: string[] = []
+  let bornMidFunnel: string[] = []
 
   for (const c of cands) {
     const hist = q<{ from_status: Status | null; to_status: Status }>(
@@ -151,13 +191,16 @@ section('4. every status change has a status_history row (Part III)')
     )
     if (!hist.length) { chainBreaks.push(`${c.handle}: no history at all`); continue }
     if (hist[0].from_status !== null) noGenesis.push(c.handle)
+    // A candidate is born sourced; a chain that STARTS mid-funnel means the row
+    // was minted rather than transitioned, and its real history is gone.
+    if (hist[0].to_status !== 'sourced') bornMidFunnel.push(`${c.handle}: born ${hist[0].to_status}`)
     // Walk the chain: each row's from_status must equal the previous to_status,
     // each hop must be legal, and the last to_status must equal the live status.
     for (let i = 1; i < hist.length; i++) {
       if (hist[i].from_status !== hist[i - 1].to_status) {
         chainBreaks.push(`${c.handle}: ${hist[i - 1].to_status} then from=${hist[i].from_status}`)
       }
-      if (!canTransition(hist[i].from_status as Status, hist[i].to_status)) {
+      if (!canonAllows(hist[i].from_status, hist[i].to_status)) {
         illegal.push(`${c.handle}: ${hist[i].from_status} -> ${hist[i].to_status}`)
       }
     }
@@ -168,6 +211,7 @@ section('4. every status change has a status_history row (Part III)')
   assert('current status is reconstructible from history for every candidate', chainBreaks.length === 0, chainBreaks.join(' | '))
   assert('every recorded transition is legal under Part 8.2', illegal.length === 0, illegal.join(' | '))
   assert('every candidate has a genesis history row', noGenesis.length === 0, noGenesis.join(', '))
+  assert('every candidate was born sourced, not minted mid-funnel', bornMidFunnel.length === 0, bornMidFunnel.join(' | '))
 
   const orphan = one<{ c: number }>('SELECT count(*) c FROM status_history sh LEFT JOIN candidates c ON c.id=sh.candidate_id WHERE c.id IS NULL')
   assert('no orphaned history rows', orphan.c === 0, `${orphan.c} orphans`)
@@ -216,10 +260,25 @@ section('6. observations are append-only — no UPDATE path exists (Law 9)')
   assert('raw SQL cannot insert a NON-ASCII uppercase handle', blocked(rawInsert('Ärnold')))
   assert('raw SQL cannot insert a handle with a hyphen or space', blocked(rawInsert('probe-three')))
   assert('raw SQL cannot insert an over-length handle', blocked(rawInsert('p'.repeat(31))))
+  // The INSERT door, not just the UPDATE door: minting a candidate mid-funnel
+  // must abort, or INSERT OR REPLACE can teleport one and erase its chain.
+  assert('raw SQL cannot mint a candidate mid-funnel', blocked(() =>
+    p.exec(`INSERT INTO candidates (handle,source,first_seen,status,loi_tier,created_at,updated_at) VALUES ('ghostsigned','check','${at}','signed','t1','${at}','${at}')`)))
+  assert('INSERT OR REPLACE cannot teleport a candidate and erase its history', blocked(() =>
+    p.exec(`INSERT OR REPLACE INTO candidates (handle,source,first_seen,status,loi_tier,created_at,updated_at) VALUES ('probe','check','${at}','signed','t1','${at}','${at}')`)))
+
+  // Own handle, and guarded: if an earlier probe leaves 'probe' somewhere
+  // unexpected, this must FAIL rather than throw and abort the whole suite
+  // before sections 6b/7/8 have run.
   assert('a raw status UPDATE still writes history', (() => {
-    p.exec("UPDATE candidates SET status='qualified' WHERE handle='probe'")
-    const h = p.prepare("SELECT count(*) c FROM status_history WHERE to_status='qualified'").get() as { c: number }
-    return h.c === 1
+    try {
+      p.exec(`INSERT INTO candidates (handle,source,first_seen,created_at,updated_at) VALUES ('histprobe','check','${at}','${at}','${at}')`)
+      p.exec("UPDATE candidates SET status='qualified' WHERE handle='histprobe'")
+      const h = p.prepare(
+        "SELECT count(*) c FROM status_history WHERE to_status='qualified' AND candidate_id=(SELECT id FROM candidates WHERE handle='histprobe')",
+      ).get() as { c: number }
+      return h.c === 1
+    } catch { return false }
   })())
   p.close()
   for (const suffix of ['', '-wal', '-shm']) rmSync(probePath + suffix, { force: true })
@@ -258,16 +317,52 @@ section('7. spend sum <= cap (Law 6, Part X)')
 // 8. Secondary dedupe — a flag, never an auto-merge (Part III).
 section('8. secondary dedupe: shared link pages are flagged, never merged')
 {
+  // The dedupe key has exactly ONE definition, so this groups with the same
+  // function the drawer uses. A second implementation here silently disagreed
+  // with the app on query strings, so `check` could report a clean sheet on a
+  // duplicate the UI was actively warning about. Independence is kept instead
+  // by asserting that function against hand-written expectations below.
+  const EXPECTED: [string, string | null][] = [
+    ['https://stan.store/tara', 'stan.store/tara'],
+    ['https://www.stan.store/tara/', 'stan.store/tara'],
+    ['http://STAN.store/Tara', 'stan.store/tara'],
+    ['stan.store/tara', 'stan.store/tara'],
+    ['https://stan.store/tara?utm_source=ig', 'stan.store/tara'],
+    ['https://stan.store/tara#offers', 'stan.store/tara'],
+    ['  https://stan.store/tara  ', 'stan.store/tara'],
+    ['https://linktr.ee/x/y', 'linktr.ee/x/y'],
+    ['', null],
+    ['   ', null],
+  ]
+  const wrong = EXPECTED.filter(([input, want]) => normalizeLinkUrl(input) !== want)
+  assert('the link_url dedupe key normalizes as Part III intends', wrong.length === 0,
+    wrong.map(([i, w]) => `${JSON.stringify(i)} -> ${JSON.stringify(normalizeLinkUrl(i))}, expected ${JSON.stringify(w)}`).join(' | '))
+
   const rows = q<{ id: number; handle: string; link_url: string | null }>('SELECT id, handle, link_url FROM candidates WHERE link_url IS NOT NULL')
   const byNorm = new Map<string, string[]>()
   for (const r of rows) {
-    const norm = (r.link_url ?? '').replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/+$/, '').toLowerCase()
+    const norm = normalizeLinkUrl(r.link_url)
     if (!norm) continue
     byNorm.set(norm, [...(byNorm.get(norm) ?? []), r.handle])
   }
   const twins = [...byNorm.entries()].filter(([, hs]) => hs.length > 1)
   if (twins.length) twins.forEach(([norm, hs]) => warn('shared link page', `${norm}: ${hs.join(', ')} — merge by hand or leave separate`))
   else console.log('  ok    no shared link pages to flag')
+}
+
+// 9. The Observatory holds no duplicate readings (Law 9 makes them permanent).
+section('9. observatory integrity — duplicate snapshots can never be removed (Law 9)')
+{
+  const dupes = q<{ handle: string; observed_at: string; c: number }>(
+    'SELECT handle, observed_at, count(*) c FROM observations GROUP BY handle, observed_at HAVING c > 1 ORDER BY c DESC',
+  )
+  const total = one<{ c: number }>('SELECT count(*) c FROM observations').c
+  if (dupes.length) {
+    warn('duplicate observation snapshots',
+      `${dupes.length} (handle, observed_at) pair(s) repeated across ${total} rows — e.g. ${dupes.slice(0, 3).map((d) => `${d.handle}@${d.observed_at}×${d.c}`).join(', ')}. These cannot be deleted; any panel average over them is skewed.`)
+  } else {
+    console.log(`  ok    ${total} snapshot(s), no duplicate readings`)
+  }
 }
 
 sqlite.close()

@@ -9,7 +9,13 @@ import { METRO_LABELS } from '@/config/metros'
 import { STATUS_LABELS } from '@/lib/status'
 
 const fmt = new Intl.NumberFormat('en-US')
-const today = () => new Date().toISOString().slice(0, 10)
+
+/**
+ * The LOCAL calendar date. next_action_date comes from <input type="date">, which
+ * is local; comparing it against a UTC date marks tomorrow's actions overdue
+ * from 20:00 local onward — which is exactly the evening window Conner works in.
+ */
+const today = () => new Date().toLocaleDateString('en-CA')
 
 export function PipelineClient({
   rows, sources, filters,
@@ -38,12 +44,19 @@ export function PipelineClient({
     setCursor((c) => (rows.length === 0 ? 0 : Math.min(c, rows.length - 1)))
   }, [rows.length])
 
-  // Cockpit keys: j/k walk the table, Enter opens the drawer, Esc closes it.
+  // Cockpit keys: j/k walk the table, Enter opens the drawer.
+  //
+  // Two things this must NOT do. It must not stay armed while the drawer is
+  // open — the drawer is modal and owns the keyboard, including Esc; leaving
+  // this listener live let Enter swap the drawer to a different candidate
+  // without remounting it. And it must not preventDefault on an interactive
+  // target: cancelling keydown on a focused button or link suppresses the
+  // activation click and the href, so Enter would do nothing anywhere on the page.
   useEffect(() => {
+    if (openId !== null) return
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null
-      if (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return
-      if (e.key === 'Escape') return setOpenId(null)
+      if (el?.closest('input, textarea, select, button, a, [contenteditable]')) return
       if (!rows.length) return
       if (e.key === 'j') { e.preventDefault(); setCursor((c) => Math.min(rows.length - 1, c + 1)) }
       else if (e.key === 'k') { e.preventDefault(); setCursor((c) => Math.max(0, c - 1)) }
@@ -51,7 +64,7 @@ export function PipelineClient({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [rows, cursor])
+  }, [rows, cursor, openId])
 
   const active = Object.entries(filters).filter(([, v]) => v && v !== 'all')
 
@@ -141,7 +154,10 @@ export function PipelineClient({
         ) : null}
       </div>
 
-      {openId !== null ? <CandidateDrawer id={openId} onClose={() => setOpenId(null)} /> : null}
+      {/* key: a different candidate gets a FRESH instance. Without it React reuses
+          the component and the previous candidate's LOI tier, error banner and
+          not-found state ride along onto the next one. */}
+      {openId !== null ? <CandidateDrawer key={openId} id={openId} onClose={() => setOpenId(null)} /> : null}
     </>
   )
 }

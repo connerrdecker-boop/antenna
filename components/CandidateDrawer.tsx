@@ -26,13 +26,16 @@ export function CandidateDrawer({ id, onClose }: { id: number; onClose: () => vo
   const [outDir, setOutDir] = useState<'out' | 'in'>('out')
 
   const load = useCallback(async () => {
+    setError(null)
     const res = await fetchDetail(id)
     if (!res.ok) return setError(res.error)
     if (!res.data) return setNotFound(true)
     setDetail(res.data)
     setNotes(res.data.candidate.notes ?? '')
     setNextAction(res.data.candidate.nextActionDate ?? '')
-    if (res.data.candidate.loiTier) setLoiTier(res.data.candidate.loiTier)
+    // Unconditional: a candidate with no tier yet must reset the picker, not
+    // inherit whatever was selected last.
+    setLoiTier(res.data.candidate.loiTier ?? 't1')
   }, [id])
 
   useEffect(() => { void load() }, [load])
@@ -64,6 +67,16 @@ export function CandidateDrawer({ id, onClose }: { id: number; onClose: () => vo
     return (
       <Shell onClose={onClose} title={`#${id}`}>
         <div className="err">Candidate {id} no longer exists.</div>
+      </Shell>
+    )
+  }
+  // Must come BEFORE the loading shell: a failed initial load leaves detail null,
+  // so without this the drawer sits on "Reading the row…" forever with no message.
+  if (error && !detail) {
+    return (
+      <Shell onClose={onClose} title={`#${id}`}>
+        <div className="err">{error}</div>
+        <button type="button" className="btn" onClick={() => void load()}>Retry</button>
       </Shell>
     )
   }

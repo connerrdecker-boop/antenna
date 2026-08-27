@@ -6,6 +6,10 @@
  *      |(ratify b)-> banked          |`-------- declined (they said no, any stage)
  *      |(ratify n)-> rejected        `-> no_response (1 follow-up + 7 quiet days)
  *
+ * Re-entry edges (ratified in A1), manual via the drawer only, never automated:
+ *   no_response -> replied    a ghost who answers late; the funnel resumes
+ *   banked ------> qualified  wave-three activation of banked inventory
+ *
  * `rejected` = WE disqualified.  `declined` = THEY said no.  Never conflate.
  *
  * This object is the single source of truth: db/enforcement.ts compiles it into
@@ -24,12 +28,15 @@ export const TRANSITIONS: Record<Status, readonly Status[]> = {
   call_booked: ['demo_given', 'declined'],
   demo_given: ['loi_sent', 'declined'],
   loi_sent: ['signed', 'declined'],
+  // Re-entry into the live funnel. Ratified in A1: without these, a ghost who
+  // answers late has no legal move and banked inventory is dead stock (Law 7).
+  // Both are manual, drawer-only moves — nothing automated may take them.
+  no_response: ['replied'],
+  banked: ['qualified'],
   // Terminal states.
   signed: [],
   declined: [],
   rejected: [],
-  no_response: [],
-  banked: [],
 }
 
 export const TERMINAL_STATUSES: readonly Status[] =

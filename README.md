@@ -80,7 +80,10 @@ bind every writer — the UI, a tsx script, a future harvest adapter, or a raw `
 - `handle` is unique, lowercased and bare — it is the dedupe key (Part III)
 - `signed` requires an `loi_tier` (Part 8.2)
 - every status change writes a `status_history` row, **no exceptions**
-- only Part 8.2 transitions are possible; terminal states have no way out
+- only Part 8.2 transitions are possible; the three terminal states (`signed`, `declined`,
+  `rejected`) have no way out
+- the two re-entry edges are `no_response → replied` (a ghost who answers late) and
+  `banked → qualified` (wave-three activation) — manual, from the drawer, never automated
 - **observations are append-only** — `UPDATE` and `DELETE` both abort (Law 9)
 - enum columns reject anything outside the Part III string sets
 - `followup_count` can never exceed one (Part 8.2: never a third touch)

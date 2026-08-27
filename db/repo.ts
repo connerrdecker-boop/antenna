@@ -286,10 +286,19 @@ export function transitionStatus(id: number, to: Status, opts: TransitionOpts = 
 
     // The AFTER UPDATE trigger just wrote this row; enrich it with the note and,
     // when backdating, the caller's timestamp.
+    //
+    // Verify the row actually DESCRIBES this hop before touching it. Checking
+    // only that some row exists is useless — the genesis row guarantees that —
+    // so if the trigger were ever missing we would silently overwrite the
+    // PREVIOUS transition's note and timestamp and report success.
     const hist = sqlite
-      .prepare('SELECT id FROM status_history WHERE candidate_id = ? ORDER BY id DESC LIMIT 1')
-      .get(id) as { id: number } | undefined
-    if (!hist) throw new Error('status_history row was not written — enforcement triggers are missing')
+      .prepare('SELECT id, from_status, to_status FROM status_history WHERE candidate_id = ? ORDER BY id DESC LIMIT 1')
+      .get(id) as { id: number; from_status: Status | null; to_status: Status } | undefined
+    if (!hist || hist.from_status !== row.status || hist.to_status !== to) {
+      throw new Error(
+        'status_history row was not written for this transition — enforcement triggers are missing. Run npm run migrate.',
+      )
+    }
     sqlite
       .prepare('UPDATE status_history SET note = ?, at = ? WHERE id = ?')
       .run(opts.note ?? null, at, hist.id)

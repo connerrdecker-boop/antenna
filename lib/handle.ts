@@ -54,10 +54,16 @@ export function igUrlFor(handle: string): string {
  * link page get FLAGGED for manual merge, never auto-merged.
  */
 export function normalizeLinkUrl(input: string | null | undefined): string | null {
-  if (!input) return null
+  // Trim ONCE, up front, and test the trimmed value. Testing the raw input while
+  // prefixing the trimmed one meant ' https://stan.store/x' missed the scheme
+  // test and became 'https://https://stan.store/x' — hostname 'https', a dedupe
+  // key that matches nothing. Anchoring on '://' also stops mailto: collapsing
+  // to a bare domain.
+  const s = (input ?? '').trim()
+  if (!s) return null
   let url: URL
   try {
-    url = new URL(/^https?:/i.test(input) ? input : `https://${input.trim()}`)
+    url = new URL(/^https?:\/\//i.test(s) ? s : `https://${s}`)
   } catch {
     return null
   }
