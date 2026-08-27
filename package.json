@@ -1,0 +1,36 @@
+{
+  "name": "antenna",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "predev": "npm run --silent migrate",
+    "dev": "next dev",
+    "build": "next build",
+    "prestart": "npm run --silent migrate",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "migrate": "tsx scripts/migrate.ts",
+    "seed": "tsx scripts/seed.ts",
+    "check": "tsx scripts/check.ts && npm run --silent check:golden",
+    "check:golden": "tsx scripts/check-golden.ts",
+    "backup": "tsx scripts/backup.ts",
+    "db:generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.121.0",
+    "better-sqlite3": "^13.0.3",
+    "drizzle-orm": "^0.45.2",
+    "next": "16.3.3",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.23.12",
+    "typescript": "^5"
+  }
+}
