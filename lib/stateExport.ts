@@ -8,7 +8,7 @@
  *   state/census.json    person-free, COMMITTED. Counts and money.
  *   state/snapshot.json  person-linked, GITIGNORED. Handed to the operator.
  */
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import type BetterSqlite3 from 'better-sqlite3'
 import { getSqlite } from '@/db/connection'
 import { CENSUS_PATH, readCensusFrom, type Census } from './census'
@@ -23,8 +23,20 @@ export function writeStateExport(sqlite: BetterSqlite3.Database = getSqlite()): 
 
   mkdirSync('state', { recursive: true })
 
-  const census = readCensusFrom(sqlite, at)
-  writeFileSync(CENSUS_PATH, JSON.stringify(census, null, 2) + '\n')
+  // The census is COMMITTED and now rewritten on every ratify keystroke, so a
+  // fresh `written_at` on every call would leave a modified file in git status
+  // after every single decision. Substance-only writes: the timestamp then
+  // means "when the recorded state last CHANGED", which is the question anyone
+  // reading it actually has, and an unchanged census stays byte-identical.
+  const fresh = readCensusFrom(sqlite, at)
+  const prior = existsSync(CENSUS_PATH)
+    ? (JSON.parse(readFileSync(CENSUS_PATH, 'utf8')) as Census)
+    : null
+  const sameSubstance = prior !== null &&
+    JSON.stringify(prior.tables) === JSON.stringify(fresh.tables) &&
+    JSON.stringify(prior.spend_floor) === JSON.stringify(fresh.spend_floor)
+  const census = sameSubstance ? prior : fresh
+  if (!sameSubstance) writeFileSync(CENSUS_PATH, JSON.stringify(census, null, 2) + '\n')
 
   // Every child table carries the candidate's HANDLE, never its id: ids are
   // autoincrement and re-minted in a rebuilt container, so an id-keyed export

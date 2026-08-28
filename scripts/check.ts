@@ -1000,6 +1000,17 @@ section('17. erasure + durability machinery (forget · restore · write-through)
   assert('the CLI and the write-through share one implementation',
     readFileSync('scripts/state-export.ts', 'utf8').includes('writeStateExport'))
 
+  // The census is committed AND rewritten on every ratify keystroke, so it
+  // must be byte-stable when nothing changed — otherwise every decision leaves
+  // a modified file in git status, and "has the census moved?" stops being a
+  // signal worth reading. Behavioural, not structural: export twice and diff.
+  if (existsSync(CENSUS_PATH)) {
+    const before = readFileSync(CENSUS_PATH, 'utf8')
+    writeStateExport(sqlite)
+    assert('re-exporting an unchanged database leaves the census byte-identical',
+      readFileSync(CENSUS_PATH, 'utf8') === before)
+  }
+
   // Prove it, rather than trusting the try/catch: point the exporter at a
   // database that has been closed under it and confirm it reports instead of
   // throwing.
