@@ -8,6 +8,13 @@
  *
  * Balance means balance: up to 5 most-recent approves and up to 5 most-recent
  * rejects — a lopsided history never floods the block with one class.
+ *
+ * "Most recent" means most recent BY DECISION TIME (`r.at`), not by rowid.
+ * Those two orders agree during normal operation and diverge the moment rows
+ * arrive in any order but the one they were decided in — a restore from an
+ * export, a backfill, a seeded fixture. Ordering on rowid there would silently
+ * calibrate the scorer against a different five of Conner's judgments than the
+ * five he actually made last, with nothing to show that it had happened.
  * `bank` and `flag` decisions are metro calls and indecision respectively;
  * Part 6.5 names approve/reject as the training signal, so only those two feed
  * the block.
@@ -40,7 +47,7 @@ function recentDecisions(
        FROM ratifications r
        JOIN candidates c ON c.id = r.candidate_id
        WHERE r.decision = ?
-       ORDER BY r.id DESC
+       ORDER BY r.at DESC, r.id DESC
        LIMIT ?`,
     )
     .all(decision, limit) as ExampleRow[]

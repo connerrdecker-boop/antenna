@@ -6,8 +6,10 @@
  * deliberate: a check generated from the code under test can only ever agree
  * with it. This one can catch drift.
  */
-import { readFileSync } from 'node:fs'
-import { rmSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
+import {
+  CENSUS_PATH, CENSUS_SCHEMA, breachReport, censusBreaches, type Census,
+} from '@/lib/census'
 import { CAPS } from '@/config/limits'
 import { DB_PATH, openSqlite } from '@/db/connection'
 import {
@@ -303,6 +305,75 @@ section('6. observations are append-only — no UPDATE path exists (Law 9)')
     p.exec(`INSERT INTO candidates (handle,source,first_seen,status,loi_tier,created_at,updated_at) VALUES ('ghostsigned','check','${at}','signed','t1','${at}','${at}')`)))
   assert('INSERT OR REPLACE cannot teleport a candidate and erase its history', blocked(() =>
     p.exec(`INSERT OR REPLACE INTO candidates (handle,source,first_seen,status,loi_tier,created_at,updated_at) VALUES ('probe','check','${at}','signed','t1','${at}','${at}')`)))
+
+  // The assertion above passes on the BIRTH-STATUS guard ('signed' can never be
+  // minted), which means it never exercised the cascade at all. The dangerous
+  // variant is the LEGAL-looking one: status='sourced' satisfied every rule and
+  // still deleted the row, taking its ratifications, history and outreach with
+  // it — REPLACE does not fire delete triggers while recursive_triggers is OFF.
+  // Verified against a copy of the live DB before the fix: 1 ratification -> 0.
+  // So this probe asserts the abort AND that the chain is still standing.
+  assert('INSERT OR REPLACE with a LEGAL status cannot cascade a chain away', (() => {
+    try {
+      p.exec(`INSERT INTO candidates (handle,source,first_seen,created_at,updated_at) VALUES ('cascadeprobe','check','${at}','${at}','${at}')`)
+      const cid = (p.prepare("SELECT id FROM candidates WHERE handle='cascadeprobe'").get() as { id: number }).id
+      p.prepare('INSERT INTO ratifications (candidate_id, decision, reason, at) VALUES (?, ?, ?, ?)')
+        .run(cid, 'approve', 'probe', at)
+      const before = (p.prepare('SELECT count(*) c FROM ratifications WHERE candidate_id=?').get(cid) as { c: number }).c
+      const aborted = blocked(() =>
+        p.exec(`INSERT OR REPLACE INTO candidates (id,handle,source,first_seen,status,followup_count,created_at,updated_at) VALUES (${cid},'cascadeprobe','check','${at}','sourced',0,'${at}','${at}')`))
+      const after = (p.prepare('SELECT count(*) c FROM ratifications WHERE candidate_id=?').get(cid) as { c: number }).c
+      return aborted && before === 1 && after === 1
+    } catch { return false }
+  })())
+
+  // The guard has two branches and the probe above only exercises one. A
+  // REPLACE that OMITS the id conflicts on the handle unique index instead and
+  // cascades exactly the same way, so it needs its own probe — otherwise
+  // deleting the handle branch leaves the suite green.
+  assert('INSERT OR REPLACE keyed on HANDLE (no id) cannot cascade either', (() => {
+    try {
+      p.exec(`INSERT INTO candidates (handle,source,first_seen,created_at,updated_at) VALUES ('handleprobe','check','${at}','${at}','${at}')`)
+      const cid = (p.prepare("SELECT id FROM candidates WHERE handle='handleprobe'").get() as { id: number }).id
+      p.prepare('INSERT INTO ratifications (candidate_id, decision, reason, at) VALUES (?, ?, ?, ?)')
+        .run(cid, 'reject', 'probe', at)
+      const aborted = blocked(() =>
+        p.exec(`INSERT OR REPLACE INTO candidates (handle,source,first_seen,status,followup_count,created_at,updated_at) VALUES ('handleprobe','check','${at}','sourced',0,'${at}','${at}')`))
+      const after = (p.prepare('SELECT count(*) c FROM ratifications WHERE candidate_id=?').get(cid) as { c: number }).c
+      return aborted && after === 1
+    } catch { return false }
+  })())
+
+  // And the id branch on its own: an existing ID under a BRAND-NEW handle
+  // collides on the primary key without colliding on the unique index, so the
+  // handle branch cannot catch it. Without this probe, deleting the id branch
+  // left the suite green — the two probes above both happen to collide on
+  // both keys at once.
+  assert('INSERT OR REPLACE on an existing ID under a new handle cannot cascade', (() => {
+    try {
+      p.exec(`INSERT INTO candidates (handle,source,first_seen,created_at,updated_at) VALUES ('idprobe','check','${at}','${at}','${at}')`)
+      const cid = (p.prepare("SELECT id FROM candidates WHERE handle='idprobe'").get() as { id: number }).id
+      p.prepare('INSERT INTO ratifications (candidate_id, decision, reason, at) VALUES (?, ?, ?, ?)')
+        .run(cid, 'bank', 'probe', at)
+      const aborted = blocked(() =>
+        p.exec(`INSERT OR REPLACE INTO candidates (id,handle,source,first_seen,status,followup_count,created_at,updated_at) VALUES (${cid},'idprobe.renamed','check','${at}','sourced',0,'${at}','${at}')`))
+      const after = (p.prepare('SELECT count(*) c FROM ratifications WHERE candidate_id=?').get(cid) as { c: number }).c
+      return aborted && after === 1
+    } catch { return false }
+  })())
+
+  // Law 9's third door. no_update and no_delete block the obvious paths;
+  // INSERT OR REPLACE walked through both and rewrote a snapshot in place
+  // (verified: follower_count 4155 -> 999999, no abort).
+  assert('INSERT OR REPLACE cannot rewrite an observation (Law 9)', (() => {
+    try {
+      const oid = (p.prepare("SELECT id FROM observations WHERE handle='probe'").get() as { id: number }).id
+      const aborted = blocked(() =>
+        p.exec(`INSERT OR REPLACE INTO observations (id,handle,observed_at,follower_count,source) VALUES (${oid},'probe','${at}',999999,'probe')`))
+      const now = p.prepare('SELECT follower_count FROM observations WHERE id=?').get(oid) as { follower_count: number | null }
+      return aborted && now.follower_count !== 999999
+    } catch { return false }
+  })())
 
   // Own handle, and guarded: if an earlier probe leaves 'probe' somewhere
   // unexpected, this must FAIL rather than throw and abort the whole suite
@@ -815,6 +886,78 @@ section('15. actor wiring — selection gate, Law 3, cost bounds, mapping (Part 
     "SELECT count(*) c FROM candidates WHERE tier IS NOT NULL AND tier <> 'X' AND score_prompt_version IS NULL",
   ).c
   assert('every non-X tier carries the prompt version that produced it', mislabelled === 0, `${mislabelled} rows`)
+}
+
+// 16. THE AMNESIA TRIPWIRE. Everything above this line tests whether the code
+//     is correct. This tests whether the DATA IS STILL HERE — which no other
+//     assertion did, so a fresh empty database passed the whole suite GREEN.
+section('16. the data is still here (Law 2: no lost data · Law 6: the ledger never resets)')
+{
+  if (!existsSync(CENSUS_PATH)) {
+    // Honest PENDING, in the style check-golden.ts already uses: absent is not
+    // a pass, and saying "ok" here would be the exact false comfort this
+    // section exists to remove.
+    warn('no census yet', `${CENSUS_PATH} does not exist — run \`npm run state:export\` to set the high-water mark. Until then nothing detects data loss.`)
+  } else {
+    const census = JSON.parse(readFileSync(CENSUS_PATH, 'utf8')) as Census
+    assert('the census is a schema this build understands', census.schema === CENSUS_SCHEMA, `schema ${census.schema}`)
+
+    const breaches = censusBreaches(sqlite, census)
+    const rowBreaches = breaches.filter((b) => b.kind === 'rows')
+    const spendBreaches = breaches.filter((b) => b.kind === 'spend')
+
+    assert('no table holds fewer rows than the census records',
+      rowBreaches.length === 0,
+      rowBreaches.map((b) => `${b.what} ${b.actual}<${b.expected}`).join(', '))
+    assert('the spend ledger is at or above its recorded floor (Law 6)',
+      spendBreaches.length === 0,
+      spendBreaches.map((b) => `${b.what} $${b.actual.toFixed(4)}<$${b.expected.toFixed(4)}`).join(', '))
+
+    if (breaches.length) {
+      console.log('')
+      for (const line of breachReport(breaches, census).split('\n')) console.log(`        ${line}`)
+      console.log('')
+    }
+
+    // The tripwire must be able to FIRE, not merely be present. Prove it here
+    // against a census that claims more than any database could hold, so a
+    // future refactor that neuters censusBreaches turns this red.
+    const impossible: Census = {
+      ...census,
+      tables: Object.fromEntries(Object.keys(census.tables).map((t) => [t, 10 ** 9])),
+      spend_floor: { ...census.spend_floor, total: 10 ** 9 },
+    }
+    const proof = censusBreaches(sqlite, impossible)
+    assert('the tripwire actually fires when rows are missing',
+      proof.some((b) => b.kind === 'rows' && b.what === 'candidates'))
+    assert('the tripwire actually fires when the ledger has fallen',
+      proof.some((b) => b.kind === 'spend' && b.what === 'total'))
+    assert('being AHEAD of the census is not a breach (work done since the export)',
+      censusBreaches(sqlite, { ...census, tables: Object.fromEntries(Object.keys(census.tables).map((t) => [t, 0])), spend_floor: { serp: 0, actors: 0, llm: 0, total: 0 } }).length === 0)
+  }
+
+  // The census must stay committable and the snapshot must stay out of git.
+  // `.gitignore` already contains `antenna.db*`, which silently swallows any
+  // artifact named antenna.db.something — so the naming of these files is
+  // load-bearing, not cosmetic.
+  const ignoreRules = readFileSync('.gitignore', 'utf8')
+  assert('the person-linked snapshot is gitignored (Law 5: delete-on-request stays trivial)',
+    /^\/state\/snapshot\.json$/m.test(ignoreRules))
+  assert('the person-free census is NOT gitignored (it is the tripwire, it must travel)',
+    !/^\/state\/?$/m.test(ignoreRules) && !/^\/state\/census\.json$/m.test(ignoreRules))
+
+  // And the census may never carry person-linked content, or committing it
+  // would quietly become the thing the split exists to prevent.
+  if (existsSync(CENSUS_PATH)) {
+    const raw = readFileSync(CENSUS_PATH, 'utf8')
+    const live = q<{ handle: string }>('SELECT handle FROM candidates')
+    const leaked = live.filter((r) => raw.includes(r.handle))
+    assert('no candidate handle appears in the committed census', leaked.length === 0,
+      leaked.slice(0, 3).map((r) => r.handle).join(', '))
+    for (const field of ['bio', 'reason', 'caption', 'link_contents', 'hook_draft', 'text']) {
+      assert(`the census carries no "${field}" field`, !new RegExp(`"${field}"`).test(raw))
+    }
+  }
 }
 
 // Drain the behavioural probes, then report. Nothing prints before every

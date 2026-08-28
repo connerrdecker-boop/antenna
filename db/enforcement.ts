@@ -91,6 +91,22 @@ function triggers(): Trigger[] {
       sql: `CREATE TRIGGER candidates_guard_insert BEFORE INSERT ON candidates\nBEGIN\n${rows}\n${guard(
         "NEW.status <> 'sourced'",
         'a candidate is born sourced (Part IV / Part 8.2): move it with a transition, never mint it mid-funnel',
+      )}\n${guard(
+        // The birth-status guard above closed the TELEPORT (a REPLACE landing
+        // mid-funnel) but not the CASCADE: `INSERT OR REPLACE ... status =
+        // 'sourced'` passed every rule and still deleted the old row, taking
+        // its ratifications, status_history and outreach_log with it via the
+        // FK cascade — silently, because REPLACE does not fire delete triggers
+        // while recursive_triggers is OFF (db/connection.ts). Verified: a
+        // REPLACE on a candidate with one ratification left zero.
+        //
+        // A BEFORE INSERT trigger can still SEE the row REPLACE is about to
+        // delete (verified under both pragma settings), so the collision is
+        // catchable here. Guard on handle as well as id: a REPLACE that omits
+        // id conflicts on the handle unique index instead and cascades just
+        // the same.
+        "EXISTS (SELECT 1 FROM candidates WHERE handle = NEW.handle OR (NEW.id IS NOT NULL AND id = NEW.id))",
+        'this candidate already exists: INSERT OR REPLACE would delete the old row and its ratifications, history and outreach with it (Law 2: no lost data). UPDATE the row, never re-mint it.',
       )}\nEND;`,
     },
     {
@@ -161,6 +177,17 @@ function triggers(): Trigger[] {
         guard("NEW.handle IS NULL OR trim(NEW.handle) = ''", 'observations.handle is required'),
         guard("NEW.handle GLOB '*[^a-z0-9._]*'", 'observations.handle must be lowercase a-z 0-9 . _ only'),
         guard("NEW.source IS NULL OR trim(NEW.source) = ''", 'every observation carries source (Law 4)'),
+        // Law 9's third door. observations_no_update and observations_no_delete
+        // block the two obvious paths, but `INSERT OR REPLACE INTO observations
+        // (id, ...)` walked straight through both and rewrote a snapshot in
+        // place — REPLACE deletes without firing delete triggers while
+        // recursive_triggers is OFF. Verified: follower_count 4155 -> 999999,
+        // no abort. Append-only has to mean append-only against every writer,
+        // which is the entire reason these rules live in the database.
+        guard(
+          'NEW.id IS NOT NULL AND EXISTS (SELECT 1 FROM observations WHERE id = NEW.id)',
+          'observations are append-only (Law 9): INSERT OR REPLACE on an existing snapshot is a rewrite in disguise',
+        ),
       ].join('\n')}\nEND;`,
     },
     // LAW 9 — Observations are append-only. Snapshots accumulate; nothing

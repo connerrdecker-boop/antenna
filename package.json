@@ -15,6 +15,7 @@
     "pipeline": "tsx scripts/pipeline.ts",
     "harvest": "tsx scripts/harvest.ts",
     "smoke:actor": "tsx scripts/smoke-actor.ts",
+    "state:export": "tsx scripts/state-export.ts",
     "test:fetchlink": "tsx scripts/test-fetchlink.ts",
     "check": "tsx scripts/check.ts && npm run --silent check:canon && npm run --silent check:golden",
     "check:golden": "tsx scripts/check-golden.ts",

@@ -40,3 +40,11 @@ antenna.db*
 
 # real-person profile packets for the manual provider (Law 5 hygiene)
 /profiles
+
+# Durability export (npm run state:export).
+# The census is person-free and COMMITTED — it is the tripwire that makes data
+# loss loud. The snapshot is person-linked (handles, bios, captions, DM text)
+# and never enters git history, because Law 5 promises "trivial
+# delete-on-request" and deleting from git history is not trivial. It leaves
+# the container by being handed to the operator.
+/state/snapshot.json
