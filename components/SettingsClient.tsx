@@ -17,7 +17,11 @@ const ADAPTER_INFO = [
   { name: 'commenters', label: 'Commenters / tagged (4c — STRETCH)', category: 'actors', desc: 'Commenters of seed-list coaches. Seed list is operator-filled (config/seeds.ts).' },
 ] as const
 
-type Drafts = { queries: boolean; hashtags: boolean; seeds: boolean; seedCounts: { nyc: number; sofla: number } }
+type Drafts = {
+  queries: boolean; hashtags: boolean; seeds: boolean
+  seedCounts: { nyc: number; sofla: number }
+  actor: boolean; actorId: string
+}
 
 export function SettingsClient({
   keys, drafts, spend, runs,
@@ -59,9 +63,11 @@ export function SettingsClient({
               <tr><td>Query library</td><td className="r">{drafts.queries ? <span className="chip st-hot">DRAFT</span> : <span className="chip st-win">ratified</span>}</td></tr>
               <tr><td>Hashtag library</td><td className="r">{drafts.hashtags ? <span className="chip st-hot">DRAFT</span> : <span className="chip st-win">ratified</span>}</td></tr>
               <tr><td>Seed list</td><td className="r"><span className="dim num">nyc {drafts.seedCounts.nyc} · sofla {drafts.seedCounts.sofla}</span> {drafts.seeds ? <span className="chip st-hot">DRAFT</span> : <span className="chip st-win">ratified</span>}</td></tr>
+              <tr><td>Profile actor <span className="dim">{drafts.actorId}</span></td><td className="r">{drafts.actor ? <span className="chip st-hot">DRAFT</span> : <span className="chip st-win">ratified</span>}</td></tr>
             </tbody>
           </table>
           <p className="terminal-note">Real providers refuse to spend while their library is DRAFT — fixture runs are always available.</p>
+          <p className="terminal-note">The actor is ratified by passing <code>npm run smoke:actor</code> (≤ $2) in front of you — Part 4b. Until then scale runs refuse.</p>
         </section>
 
         <section className="card pad sec">

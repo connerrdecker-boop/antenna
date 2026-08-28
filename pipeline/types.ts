@@ -9,7 +9,13 @@ export type ProfilePacket = {
   handle: string
   name?: string | null
   bio: string
-  followerCount: number
+  /**
+   * `null` when the provider did not report one. Deliberately nullable: a
+   * missing follower count is UNKNOWN, and coercing it to 0 would feed
+   * size_band (Part 6.2) a confident falsehood. Every consumer already
+   * handles null — the DB column, the score payload and the UI all do.
+   */
+  followerCount: number | null
   /** ~last 6 posts' captions (Part V). */
   captions?: string[]
   /** Post count over the trailing 30 days. */
@@ -22,6 +28,14 @@ export type ProfilePacket = {
   linkUrl?: string | null
   /** Text of the link page, when the provider already has it. */
   linkContents?: string | null
+  /**
+   * Whether the account is private. A private profile still exposes bio,
+   * name and follower count publicly, so it enriches honestly — but it has no
+   * readable posts, so it is scored X deterministically and never sent to a
+   * paid model (Law 5 / operator ruling, A2 calibration). `null` = the
+   * provider did not say.
+   */
+  isPrivate?: boolean | null
 }
 
 /**
@@ -33,6 +47,13 @@ export type ProfilePacket = {
 export interface ProfileProvider {
   readonly name: string
   fetchProfile(handle: string): Promise<ProfilePacket | null>
+  /**
+   * Optional batch door. An actor run has a fixed per-run overhead, so 32
+   * handles in one run costs a fraction of 32 runs. Providers that have no
+   * cheaper batch path simply omit it and the caller falls back to
+   * fetchProfile per handle — see prefetch() in providers/prefetch.ts.
+   */
+  fetchProfiles?(handles: readonly string[]): Promise<ProfilePacket[]>
 }
 
 /** Stage 1 output (prompts/prescore_v1.md). */

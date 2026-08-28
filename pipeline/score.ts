@@ -139,9 +139,36 @@ export async function scoreCandidate(
    * provider at score time and hands it through. Absent packet = weaker input,
    * not a failure.
    */
-  packet?: { captions?: string[]; tags?: string[] } | null,
+  packet?: { captions?: string[]; tags?: string[]; isPrivate?: boolean | null } | null,
 ): Promise<ScoreOutcome> {
   const sqlite = getSqlite()
+
+  // A private account is an honest X, and a FREE one (Law 5 / operator ruling,
+  // A2 calibration). Its posts are not public, so alive_30d and the whole
+  // content half of Part 6.2 have nothing to read; paying a frontier model to
+  // conclude that from an empty captions array is waste. The row still enters
+  // /ratify — the operator, not this branch, has the last word.
+  //
+  // `score_prompt_version` is left NULL on purpose: it is the marker that no
+  // prompt ran, which keeps deterministic X's distinguishable from scored ones
+  // in every later query, including the golden set's.
+  if (packet?.isPrivate === true) {
+    const at = new Date().toISOString()
+    sqlite
+      .prepare(
+        `UPDATE candidates SET score = 0, tier = 'X', score_failed = 0,
+           evidence = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(
+        JSON.stringify([
+          'private account — posts are not publicly readable, so activity and content signals cannot be assessed',
+          'scored X deterministically without a paid model call (Law 5: public surface only)',
+        ]),
+        at, candidate.id,
+      )
+    return { ok: true, tier: 'X', score: 0 }
+  }
+
   const system = renderScorePrompt(sqlite)
 
   const user = JSON.stringify({

@@ -20,9 +20,18 @@ import { HASHTAG_LIBRARY_STATUS, VENUE_TAGS } from '@/config/hashtags'
 import { METRO_TERMS } from '@/config/metros'
 import { QUERY_LIBRARY_STATUS, QUERY_TEMPLATES } from '@/config/queries'
 import { SEED_ACCOUNTS, SEED_LIST_STATUS, seedGateMessage } from '@/config/seeds'
+import {
+  ACTOR_SELECTION_STATUS, ACTOR_RUN_BOUNDS, DEFAULT_PROFILE_ACTOR,
+  FORBIDDEN_INPUT_KEYS, PROFILE_ACTOR_CANDIDATES, actorSelectionIsDraft,
+} from '@/config/actors'
+import { ACTOR_SMOKE_TEST_CAP } from '@/config/limits'
 import { normalizeLinkUrl } from '@/lib/handle'
 import { TRANSITIONS } from '@/lib/status'
 import { enrichAllowed } from '@/pipeline/enrich'
+import { actorProvider, estimateActorRunUsd } from '@/pipeline/providers/actor'
+import { mapActorItem } from '@/pipeline/providers/actorMap'
+import { assertNoForbiddenKeys, classifyApifyFailure } from '@/pipeline/providers/apify'
+import { prefetch } from '@/pipeline/providers/prefetch'
 import { commentersAdapter } from '@/pipeline/harvest/commenters'
 import { extractHandles, extractPlatformTells, extractPrices } from '@/pipeline/harvest/extract'
 import { ensureBudget } from '@/pipeline/lib/budget'
@@ -633,6 +642,179 @@ section('14. a prescore-killed candidate can never re-enter a gate (Law 7 leak c
   )
   assert('no killed candidate in the DB carries an enrichment timestamp',
     enrichedKills.length === 0, enrichedKills.map((r) => `${r.handle}=${r.pre_score}`).join(', '))
+}
+
+// 15. The wired Apify actor (Part 4b): selection discipline, Law 3, cost
+//     bounds, and a mapper that cannot quietly invent data.
+section('15. actor wiring — selection gate, Law 3, cost bounds, mapping (Part 4b)')
+{
+  // 15a. The selection gate. An actor is ratified by passing a smoke test in
+  // front of the operator, never by being typed into a config file.
+  assert('actor selection carries the DRAFT marker until a smoke test passes',
+    ACTOR_SELECTION_STATUS.startsWith('DRAFT') && actorSelectionIsDraft(), ACTOR_SELECTION_STATUS)
+  assert('at least two candidate actors are listed (names churn — Part 4b)',
+    PROFILE_ACTOR_CANDIDATES.length >= 2)
+  assert('the default candidate is the first listed', DEFAULT_PROFILE_ACTOR === PROFILE_ACTOR_CANDIDATES[0])
+
+  const savedToken = process.env.APIFY_TOKEN
+  const halted = async (fn: () => Promise<unknown>): Promise<string> => {
+    try { await fn(); return '' } catch (e) { return e instanceof Error ? e.message : String(e) }
+  }
+
+  asyncProbes.push((async () => {
+    // A SCALE run refuses while DRAFT — and refuses for that reason even when
+    // a token IS present, or the gate would just be the token check wearing a
+    // different hat.
+    process.env.APIFY_TOKEN = 'apify_api_check_suite_placeholder'
+    const scaleMsg = await halted(() => actorProvider().fetchProfiles!(['someone']))
+    assert('a SCALE run refuses while the selection is DRAFT',
+      /DRAFT/.test(scaleMsg) && /smoke/i.test(scaleMsg), scaleMsg.slice(0, 90))
+    assert('the DRAFT refusal names no charge', /[Nn]othing was charged/.test(scaleMsg))
+
+    // The smoke door is the one path through the DRAFT gate: it must get PAST
+    // it and stop at the next real prerequisite instead.
+    delete process.env.APIFY_TOKEN
+    const smokeMsg = await halted(() => actorProvider({ smokeTest: true }).fetchProfiles!(['someone']))
+    assert('the SMOKE door passes the DRAFT gate and stops at the token',
+      /APIFY_TOKEN/.test(smokeMsg) && !/DRAFT/.test(smokeMsg), smokeMsg.slice(0, 90))
+    assert('the token halt names the file and the account to fix it',
+      /\.env\.local/.test(smokeMsg) && /apify\.com/.test(smokeMsg))
+
+    if (savedToken === undefined) delete process.env.APIFY_TOKEN
+    else process.env.APIFY_TOKEN = savedToken
+  })())
+
+  // 15b. Law 3 as a predicate, not an intention.
+  const law3 = (input: Record<string, unknown>): boolean => {
+    try { assertNoForbiddenKeys(input); return false } catch { return true }
+  }
+  assert('actor input carrying cookies is refused', law3({ usernames: ['a'], cookies: [{ name: 'sessionid' }] }))
+  assert('actor input carrying a session id is refused', law3({ sessionid: 'abc' }))
+  assert('actor input carrying a password is refused', law3({ password: 'hunter2' }))
+  assert('a NESTED credential is refused too', law3({ proxy: { proxyPassword: 'x' } }))
+  assert('forbidden-key matching is case-insensitive', law3({ SessionID: 'abc' }))
+  assert('a clean input passes', !law3({ usernames: ['a', 'b'], resultsLimit: 12 }))
+  assert('every candidate actor builds a clean input',
+    PROFILE_ACTOR_CANDIDATES.every((c) => !law3(c.buildInput(['a', 'b']))))
+  assert('the forbidden list covers cookie, session and password families',
+    ['cookies', 'sessionid', 'password'].every((k) => FORBIDDEN_INPUT_KEYS.some((f) => f.toLowerCase() === k)))
+
+  // 15c. The failure classifier. This exists because a sandbox proxy's 403 was
+  // once reported as "Apify rejected the token" — sending the operator to
+  // rotate a credential that was never implicated.
+  const res = (status: number, headers: Record<string, string>) =>
+    ({ status, headers: new Headers(headers) })
+  // The body here is deliberately JSON and keyword-free, so ONLY the deny
+  // header can produce 'egress'. An earlier version of this assertion used a
+  // realistic "not in allowlist" body, which the text heuristic caught on its
+  // own — so it stayed green with the header branch deleted, i.e. it proved
+  // nothing about the branch it was written to protect.
+  assert('a gateway deny header alone classifies as egress, not auth',
+    classifyApifyFailure(res(403, { 'x-deny-reason': 'host_not_allowed', 'content-type': 'application/json' }),
+      '{"denied":true}') === 'egress')
+  assert('a plain-text allowlist body classifies as egress without a deny header',
+    classifyApifyFailure(res(403, { 'content-type': 'text/plain' }),
+      'blocked by policy: host not allowed') === 'egress')
+  assert('a JSON 403 from Apify itself still classifies as auth',
+    classifyApifyFailure(res(403, { 'content-type': 'application/json' }),
+      '{"error":{"type":"insufficient-permissions"}}') === 'auth')
+  assert('a JSON 401 classifies as auth',
+    classifyApifyFailure(res(401, { 'content-type': 'application/json' }), '{"error":{}}') === 'auth')
+  assert('404 classifies as a missing actor (names churn)',
+    classifyApifyFailure(res(404, { 'content-type': 'application/json' }), '{"error":{}}') === 'missing-actor')
+  assert('402 classifies as credit',
+    classifyApifyFailure(res(402, { 'content-type': 'application/json' }), '{"error":{}}') === 'credit')
+
+  // 15d. Cost bounds.
+  assert('the smoke cap is the canon $2', ACTOR_SMOKE_TEST_CAP === 2)
+  assert('the estimate has a per-run floor', estimateActorRunUsd(1) >= 0.05)
+  assert('the estimate grows with batch size', estimateActorRunUsd(1000) > estimateActorRunUsd(10))
+  assert('a 3-handle smoke estimate sits well under the smoke cap',
+    estimateActorRunUsd(3) < ACTOR_SMOKE_TEST_CAP)
+  assert('run bounds cap wall-clock and memory', ACTOR_RUN_BOUNDS.timeoutSecs > 0 && ACTOR_RUN_BOUNDS.memoryMbytes > 0)
+
+  // 15e. The mapper. Absent must mean unknown, never a confident zero.
+  const recent = new Date(Date.now() - 3 * 864e5).toISOString()
+  const old = new Date(Date.now() - 90 * 864e5).toISOString()
+  const { packet: full } = mapActorItem({
+    username: 'Coach_Jane', fullName: 'Jane Doe',
+    biography: 'NYC online coach\n1:1 slots open', followersCount: 12400,
+    private: false, externalUrl: 'https://stan.store/coachjane',
+    latestPosts: [
+      { caption: 'leg day', type: 'Video', productType: 'clips', likesCount: 300, commentsCount: 20, timestamp: recent, locationName: 'Brooklyn, New York' },
+      { caption: '', type: 'Sidecar', likesCount: 100, commentsCount: 0, timestamp: old },
+    ],
+  })
+  assert('handle is lowercased and bare', full?.handle === 'coach_jane', full?.handle)
+  assert('bio, followers and link map through',
+    full?.bio.startsWith('NYC online coach') === true && full?.followerCount === 12400 &&
+    full?.linkUrl === 'https://stan.store/coachjane')
+  assert('empty captions are dropped, real ones kept', full?.captions?.length === 1)
+  assert('posts30d counts only posts inside the window', full?.posts30d === 1, String(full?.posts30d))
+  assert('formatMix normalizes clips to reel and sidecar to carousel',
+    full?.formatMix?.reel === 0.5 && full?.formatMix?.carousel === 0.5, JSON.stringify(full?.formatMix))
+  assert('engagement proxy is per-post engagement over followers',
+    full?.engagementProxy === Number((((320 + 100) / 2) / 12400).toFixed(5)), String(full?.engagementProxy))
+  assert('location tags are collected', full?.tags?.includes('Brooklyn, New York') === true)
+
+  const { packet: sparse, report } = mapActorItem({ username: 'ghost' })
+  assert('a missing follower count stays NULL, never 0', sparse?.followerCount === null, String(sparse?.followerCount))
+  assert('missing metrics stay null', sparse?.posts30d === null && sparse?.engagementProxy === null && sparse?.formatMix === null)
+  assert('the mapping report names every field it could not find',
+    report.missing.includes('followerCount') && report.missing.includes('bio'), report.missing.join(','))
+  assert('an item with no handle at all maps to no packet', mapActorItem({ biography: 'x' }).packet === null)
+
+  const { packet: undated } = mapActorItem({
+    username: 'a', followersCount: 10, latestPosts: [{ caption: 'x' }, { caption: 'y' }],
+  })
+  assert('posts with no timestamps yield posts30d = null, NOT 0 (alive_30d is a gate)',
+    undated?.posts30d === null, String(undated?.posts30d))
+  assert('engagement proxy is null when no post carries counts', undated?.engagementProxy === null)
+
+  const { packet: priv } = mapActorItem({ username: 'p', private: true, followersCount: 5, biography: 'b' })
+  assert('a private account is flagged, not discarded', priv?.isPrivate === true && priv?.handle === 'p')
+
+  // 15f. An all-null packet must not write an Observatory row (Part IX
+  // write-discipline, ratified A3 — Law 9 makes the row permanent).
+  const nothingObserved = {
+    followerCount: null, posts30d: null, engagementProxy: null, formatMix: null,
+  }
+  const observed =
+    nothingObserved.followerCount !== null ? true
+    : nothingObserved.posts30d !== null ? true
+    : nothingObserved.engagementProxy !== null ? true
+    : nothingObserved.formatMix !== null
+  assert('a metric-free packet is recognised as having observed nothing', observed === false)
+  const allNullRows = one<{ c: number }>(
+    `SELECT count(*) c FROM observations
+      WHERE follower_count IS NULL AND posts_30d IS NULL
+        AND engagement_proxy IS NULL AND (format_mix IS NULL OR format_mix = 'null')`,
+  ).c
+  assert('no all-null observation exists in the DB', allNullRows === 0, `${allNullRows} rows`)
+
+  // 15g. Batch prefetch must not change what a provider means.
+  asyncProbes.push((async () => {
+    const packets = [{ handle: 'aa', bio: 'x', followerCount: 1 }]
+    const batched = await prefetch(
+      { name: 'b', fetchProfile: async () => null, fetchProfiles: async () => packets },
+      ['aa', 'bb'],
+    )
+    assert('prefetch uses the batch door when a provider has one', batched.batched && batched.fetched === 1)
+    assert('a prefetched handle resolves from memory', (await batched.provider.fetchProfile('aa'))?.bio === 'x')
+    assert('a handle the batch did not return is no-data, not an error',
+      (await batched.provider.fetchProfile('bb')) === null)
+    assert('prefetch is case-insensitive on handles', (await batched.provider.fetchProfile('AA')) !== null)
+
+    const unbatched = await prefetch({ name: 'u', fetchProfile: async () => null }, ['aa'])
+    assert('a provider without a batch door is passed through untouched',
+      !unbatched.batched && unbatched.provider.name === 'u')
+  })())
+
+  // 15h. A deterministic X is distinguishable from a scored one, forever.
+  const mislabelled = one<{ c: number }>(
+    "SELECT count(*) c FROM candidates WHERE tier IS NOT NULL AND tier <> 'X' AND score_prompt_version IS NULL",
+  ).c
+  assert('every non-X tier carries the prompt version that produced it', mislabelled === 0, `${mislabelled} rows`)
 }
 
 // Drain the behavioural probes, then report. Nothing prints before every

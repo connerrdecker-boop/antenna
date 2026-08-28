@@ -96,16 +96,29 @@ function applyPacket(
         now, now, id,
       )
 
-    // Law 9: every enrichment writes a snapshot. Append-only, forever.
-    recordObservation({
-      handle: candidate.handle,
-      observedAt: now,
-      followerCount: packet.followerCount,
-      posts30d: packet.posts30d ?? null,
-      formatMix: packet.formatMix ?? null,
-      engagementProxy: packet.engagementProxy ?? null,
-      source: `enrich:${providerName}`,
-    })
+    // Law 9: every enrichment that OBSERVED something writes a snapshot,
+    // append-only, forever. The qualifier is the Part IX write-discipline
+    // ratified in A3 — "an all-null row is noise, not data, and would skew
+    // every panel average it later joins". A provider that returned a profile
+    // with no metrics at all (no followers, no post count, no engagement) has
+    // observed nothing measurable, and Law 9 makes the row permanent, so the
+    // discipline has to be at the write.
+    const observed =
+      packet.followerCount !== null && packet.followerCount !== undefined ? true
+      : (packet.posts30d ?? null) !== null ? true
+      : (packet.engagementProxy ?? null) !== null ? true
+      : (packet.formatMix ?? null) !== null
+    if (observed) {
+      recordObservation({
+        handle: candidate.handle,
+        observedAt: now,
+        followerCount: packet.followerCount ?? null,
+        posts30d: packet.posts30d ?? null,
+        formatMix: packet.formatMix ?? null,
+        engagementProxy: packet.engagementProxy ?? null,
+        source: `enrich:${providerName}`,
+      })
+    }
   })
   run()
 }
