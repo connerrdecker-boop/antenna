@@ -11,6 +11,7 @@
 import { getSqlite } from '@/db/connection'
 import { recordObservation } from '@/db/observations'
 import { igUrlFor, linkDomainOf, normalizeHandle } from '@/lib/handle'
+import { isForgotten } from '@/lib/tombstones'
 import { ensureBudget, recordSpend } from '@/pipeline/lib/budget'
 import { PipelineHalt } from '@/lib/env'
 import type { AdapterParams, CandidateSeed, HarvestAdapter } from './types'
@@ -110,6 +111,14 @@ function ingestSeeds(
     for (const seed of seeds) {
       const handle = normalizeHandle(seed.handle ?? seed.ig_url ?? '')
       if (!handle) {
+        unusable++
+        continue
+      }
+      // Law 5: a forgotten handle is never re-collected. This door inserts
+      // through its own prepared statement rather than addCandidates(), so it
+      // needs its own tombstone check — the erasure guarantee has to hold at
+      // every door, not just the one that was easiest to remember.
+      if (isForgotten(handle)) {
         unusable++
         continue
       }

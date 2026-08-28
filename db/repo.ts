@@ -13,6 +13,7 @@ import { STATUSES } from './enums'
 import { parseJsonArray, parseJsonObject, type Extracted } from './json'
 import { candidates, outreachLog, ratifications, statusHistory } from './schema'
 import { igUrlFor, normalizeHandle, normalizeLinkUrl } from '@/lib/handle'
+import { isForgotten } from '@/lib/tombstones'
 import { assertTransition, drawerTransitions, FUNNEL_ORDER, STATUS_PRIORITY } from '@/lib/status'
 
 export const nowIso = () => new Date().toISOString()
@@ -228,6 +229,14 @@ export function addCandidates(inputs: string[], source = 'manual', sourceDetail?
         return { input, kind: 'invalid', reason: 'not a recognizable Instagram handle or profile URL' } as const
       }
 
+      // Law 5: a forgotten handle stays forgotten. Erasure that only clears
+      // the row is undone by the next harvest, which would re-collect the same
+      // person from the same query — so the tombstone is checked at the door
+      // every candidate comes through, restore and re-harvest included.
+      if (isForgotten(handle)) {
+        return { input, kind: 'invalid', reason: 'forgotten at this person\'s request (Law 5) — remove the tombstone deliberately if this is wrong' } as const
+      }
+
       // The same person twice in one paste is not two additions. Surface the
       // row we just created rather than reporting a second "added".
       const dupeInBatch = seenThisBatch.get(handle)
@@ -317,14 +326,42 @@ export function recordRatification(
   getDb().insert(ratifications).values({ candidateId, decision, reason, at }).run()
 }
 
-/** Part 8.3: log what was actually sent/received. */
+/**
+ * Part 8.3: log what was actually sent/received — and KEEP THE FOLLOW-UP
+ * COUNTER TRUE.
+ *
+ * The Part 8.2 policy is "exactly ONE follow-up per candidate, 5-7 days after
+ * the DM, then no_response. Never a third touch." Enforcement lived in the
+ * candidates_guard trigger, which refuses followup_count > FOLLOWUP
+ * .maxPerCandidate — but nothing in the tree ever incremented the column, so
+ * the guard bound a counter that never counted and the policy was decorative.
+ *
+ * The rule, stated once and derived here: outbound #1 is the DM, so
+ * followup_count = max(0, outbound_count - 1). Recomputed from the log rather
+ * than incremented blindly, so the counter cannot drift from the record it
+ * summarises — and a third outbound message is refused by the trigger, at the
+ * database, for every writer.
+ */
 export function logOutreach(
   candidateId: number,
   direction: 'out' | 'in',
   text: string | null,
   at: string = nowIso(),
 ): void {
-  getDb().insert(outreachLog).values({ candidateId, direction, text, at }).run()
+  const sqlite = getSqlite()
+  const run = sqlite.transaction(() => {
+    getDb().insert(outreachLog).values({ candidateId, direction, text, at }).run()
+    if (direction !== 'out') return
+    const { c } = sqlite
+      .prepare("SELECT count(*) c FROM outreach_log WHERE candidate_id = ? AND direction = 'out'")
+      .get(candidateId) as { c: number }
+    // updated_at is set explicitly so candidates_touch_updated_at stays quiet;
+    // this is a real edit, and it should carry this moment, not the trigger's.
+    sqlite
+      .prepare('UPDATE candidates SET followup_count = ?, updated_at = ? WHERE id = ?')
+      .run(Math.max(0, c - 1), nowIso(), candidateId)
+  })
+  run()
 }
 
 export function updateNotes(id: number, notes: string | null): void {

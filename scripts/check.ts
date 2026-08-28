@@ -10,6 +10,9 @@ import { existsSync, readFileSync, rmSync } from 'node:fs'
 import {
   CENSUS_PATH, CENSUS_SCHEMA, breachReport, censusBreaches, type Census,
 } from '@/lib/census'
+import { runDbAssertions } from '@/lib/assertions'
+import { TOMBSTONE_PATH, handleFingerprint, readTombstones } from '@/lib/tombstones'
+import { writeStateExport, writeStateExportSafely } from '@/lib/stateExport'
 import { CAPS } from '@/config/limits'
 import { DB_PATH, openSqlite } from '@/db/connection'
 import {
@@ -206,65 +209,35 @@ section('2. handle uniqueness holds (Part III: handle is the dedupe key)')
   assert('a UNIQUE index backs handle', idx.some((i) => i.unique === 1))
 }
 
-// 3. Every candidate carries source + first_seen.
-section('3. provenance on every row (Law 4 / Part 2.6)')
+// 3-5. DB-STATE INVARIANTS — provenance, the history chain, Law 10 coupling,
+//       the follow-up counter, budget, the Observatory, scoring provenance.
+//
+//       These live in lib/assertions.ts, not here, because a RESTORE has to
+//       run them INSIDE its transaction and roll back on red (ratified). This
+//       file could never be imported for that: no exports, opens the live DB
+//       at module scope, and calls process.exit. What stays here is the
+//       transition-LEGALITY check below, which compares the database against
+//       the hand-transcribed CANON_TRANSITIONS — a legality check that read
+//       the graph from lib/status.ts could only ever agree with it.
+section('3-5. DB-state invariants (Part III · Laws 2, 4, 6, 9, 10)')
 {
-  const bad = q<{ id: number }>("SELECT id FROM candidates WHERE source IS NULL OR trim(source)='' OR first_seen IS NULL OR trim(first_seen)=''")
-  assert('every candidate carries source + first_seen', bad.length === 0, `${bad.length} rows`)
-  const obs = q<{ id: number }>("SELECT id FROM observations WHERE source IS NULL OR trim(source)=''")
-  assert('every observation carries source', obs.length === 0, `${obs.length} rows`)
-}
+  for (const r of runDbAssertions(sqlite)) assert(r.label, r.ok, r.detail)
 
-// 4. Every status change has a status_history row.
-section('4. every status change has a status_history row (Part III)')
-{
-  const cands = q<{ id: number; handle: string; status: Status }>('SELECT id, handle, status FROM candidates')
-  let chainBreaks: string[] = []
-  let illegal: string[] = []
-  let noGenesis: string[] = []
-  let bornMidFunnel: string[] = []
-
-  for (const c of cands) {
+  // Legality, against the independent transcription. Kept out of
+  // lib/assertions.ts on purpose — see above.
+  const illegal: string[] = []
+  for (const c of q<{ id: number; handle: string }>('SELECT id, handle FROM candidates')) {
     const hist = q<{ from_status: Status | null; to_status: Status }>(
       'SELECT from_status, to_status FROM status_history WHERE candidate_id=? ORDER BY id', c.id,
     )
-    if (!hist.length) { chainBreaks.push(`${c.handle}: no history at all`); continue }
-    if (hist[0].from_status !== null) noGenesis.push(c.handle)
-    // A candidate is born sourced; a chain that STARTS mid-funnel means the row
-    // was minted rather than transitioned, and its real history is gone.
-    if (hist[0].to_status !== 'sourced') bornMidFunnel.push(`${c.handle}: born ${hist[0].to_status}`)
-    // Walk the chain: each row's from_status must equal the previous to_status,
-    // each hop must be legal, and the last to_status must equal the live status.
     for (let i = 1; i < hist.length; i++) {
-      if (hist[i].from_status !== hist[i - 1].to_status) {
-        chainBreaks.push(`${c.handle}: ${hist[i - 1].to_status} then from=${hist[i].from_status}`)
-      }
       if (!canonAllows(hist[i].from_status, hist[i].to_status)) {
         illegal.push(`${c.handle}: ${hist[i].from_status} -> ${hist[i].to_status}`)
       }
     }
-    if (hist[hist.length - 1].to_status !== c.status) {
-      chainBreaks.push(`${c.handle}: history ends at ${hist[hist.length - 1].to_status}, row says ${c.status}`)
-    }
   }
-  assert('current status is reconstructible from history for every candidate', chainBreaks.length === 0, chainBreaks.join(' | '))
-  assert('every recorded transition is legal under Part 8.2', illegal.length === 0, illegal.join(' | '))
-  assert('every candidate has a genesis history row', noGenesis.length === 0, noGenesis.join(', '))
-  assert('every candidate was born sourced, not minted mid-funnel', bornMidFunnel.length === 0, bornMidFunnel.join(' | '))
-
-  const orphan = one<{ c: number }>('SELECT count(*) c FROM status_history sh LEFT JOIN candidates c ON c.id=sh.candidate_id WHERE c.id IS NULL')
-  assert('no orphaned history rows', orphan.c === 0, `${orphan.c} orphans`)
-}
-
-// 5. signed requires loi_tier.
-section('5. signed requires loi_tier (Part 8.2)')
-{
-  const bad = q<{ handle: string }>("SELECT handle FROM candidates WHERE status='signed' AND (loi_tier IS NULL OR trim(loi_tier)='')")
-  assert('no signed candidate lacks an loi_tier', bad.length === 0, bad.map((r) => r.handle).join(', '))
-  const badTier = q<{ handle: string }>(`SELECT handle FROM candidates WHERE loi_tier IS NOT NULL AND loi_tier NOT IN ('t1','t2','t3')`)
-  assert('every loi_tier is t1|t2|t3', badTier.length === 0, badTier.map((r) => r.handle).join(', '))
-  const overFollowup = q<{ handle: string; followup_count: number }>('SELECT handle, followup_count FROM candidates WHERE followup_count > 1 OR followup_count < 0')
-  assert('follow-up policy holds: at most one per candidate', overFollowup.length === 0, overFollowup.map((r) => `${r.handle}=${r.followup_count}`).join(', '))
+  assert('every recorded transition is legal under Part 8.2 (independent transcription)',
+    illegal.length === 0, illegal.join(' | '))
 }
 
 // 6. Observations are append-only (no UPDATE path exists).
@@ -958,6 +931,84 @@ section('16. the data is still here (Law 2: no lost data · Law 6: the ledger ne
       assert(`the census carries no "${field}" field`, !new RegExp(`"${field}"`).test(raw))
     }
   }
+}
+
+// 17. Erasure and durability machinery (Law 5 · Law 7 · Law 9 · Law 10).
+section('17. erasure + durability machinery (forget · restore · write-through)')
+{
+  // ── tombstones ─────────────────────────────────────────────────────────
+  const fp = handleFingerprint('Coach_Jane')
+  assert('the fingerprint is deterministic and case/space-insensitive',
+    fp === handleFingerprint('  coach_jane  ') && fp.length === 16)
+  assert('the fingerprint is not the handle', !fp.includes('coach') && !/[A-Z]/.test(fp))
+  assert('different handles fingerprint differently', fp !== handleFingerprint('coach_jane2'))
+
+  const ignoreRules = readFileSync('.gitignore', 'utf8')
+  assert('the tombstone file is NOT gitignored (a forgotten handle must stay forgotten across containers)',
+    !new RegExp(`^/?${TOMBSTONE_PATH.replace(/[/.]/g, '\\$&')}$`, 'm').test(ignoreRules))
+  const tombFile = readTombstones()
+  assert('the tombstone file carries only fingerprints and dates',
+    tombFile.forgotten.every((t) => /^[0-9a-f]{16}$/.test(t.fp) && typeof t.at === 'string' && Object.keys(t).length === 2),
+    JSON.stringify(tombFile.forgotten.slice(0, 2)))
+  const liveHandles = q<{ handle: string }>('SELECT handle FROM candidates').map((r) => r.handle)
+  const tombRaw = existsSync(TOMBSTONE_PATH) ? readFileSync(TOMBSTONE_PATH, 'utf8') : ''
+  assert('no plaintext handle appears in the tombstone file',
+    !liveHandles.some((h) => tombRaw.includes(h)))
+
+  // Behavioural: both candidate-creating doors consult the tombstone. They are
+  // separate code paths — repo.addCandidates and ingest's own prepared INSERT —
+  // so each needs proving, or erasure holds at one door and leaks at the other.
+  {
+    const src = readFileSync('db/repo.ts', 'utf8')
+    assert('addCandidates consults the tombstone', /isForgotten\(/.test(src))
+    const ing = readFileSync('pipeline/harvest/ingest.ts', 'utf8')
+    assert('harvest ingest consults the tombstone (its own INSERT, its own check)', /isForgotten\(/.test(ing))
+  }
+
+  // ── restore: the ratified constraints, asserted structurally ───────────
+  // Comments are stripped first. Source-text assertions that read prose as
+  // code are worse than none: this one failed on the very doc comment that
+  // WARNS against the pattern, which is the kind of false red that teaches
+  // people to delete assertions.
+  const stripComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  const restoreSrc = stripComments(readFileSync('scripts/state-restore.ts', 'utf8'))
+  assert('restore never writes status directly — it replays through transitionStatus',
+    /transitionStatus\(/.test(restoreSrc) && !/UPDATE candidates SET status/.test(restoreSrc))
+  assert('restore runs the acceptance gate INSIDE the transaction, before commit',
+    /runDbAssertions\(sqlite\)/.test(restoreSrc) &&
+    restoreSrc.indexOf('runDbAssertions(sqlite)') < restoreSrc.indexOf('run()\n  return tally'))
+  assert('restore guards the append-only observation write', /obsExists/.test(restoreSrc))
+  assert('restore keys on handle, never on candidate id',
+    !/candidate_id:\s*\w+\.candidate_id/.test(restoreSrc))
+
+  // ── forget: what it erases and what it must NOT ────────────────────────
+  const forgetSrc = stripComments(readFileSync('scripts/forget.ts', 'utf8'))
+  assert('forget writes a tombstone', /addTombstone\(/.test(forgetSrc))
+  assert('forget removes the profile packet on disk', /profiles\/\$\{handle\}\.json/.test(forgetSrc))
+  assert('forget does NOT delete spend rows (the Law 6 ledger must not understate real money)',
+    !/DELETE FROM spend|spend:\s*keep\(/.test(forgetSrc))
+  assert('forget verifies the erasure actually happened before reporting success',
+    /ERASURE INCOMPLETE/.test(forgetSrc))
+
+  // ── write-through (Law 7: never blocks the campaign) ───────────────────
+  const ratifySrc = stripComments(readFileSync('app/ratify/actions.ts', 'utf8'))
+  assert('a ratify decision writes through to the snapshot immediately',
+    (ratifySrc.match(/writeStateExportSafely\(\)/g) ?? []).length >= 2)
+  const exportSrc = stripComments(readFileSync('lib/stateExport.ts', 'utf8'))
+  assert('the write-through path can never throw into the ratify keystroke',
+    /try \{/.test(exportSrc) && /catch/.test(exportSrc))
+  assert('the CLI and the write-through share one implementation',
+    readFileSync('scripts/state-export.ts', 'utf8').includes('writeStateExport'))
+
+  // Prove it, rather than trusting the try/catch: point the exporter at a
+  // database that has been closed under it and confirm it reports instead of
+  // throwing.
+  assert('write-through reports failure instead of throwing', (() => {
+    const dead = openSqlite('/tmp/antenna-writethrough-probe.db')
+    dead.close()
+    try { writeStateExport(dead); return false } catch { /* expected raw */ }
+    try { return writeStateExportSafely.length === 0 } catch { return false }
+  })())
 }
 
 // Drain the behavioural probes, then report. Nothing prints before every
