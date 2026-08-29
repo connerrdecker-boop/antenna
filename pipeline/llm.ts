@@ -10,7 +10,7 @@
  * message naming exactly what to add — never a crash, never a fake score.
  */
 import Anthropic from '@anthropic-ai/sdk'
-import { PipelineHalt, requireAnthropicKey } from '@/lib/env'
+import { PipelineHalt, requireAnthropicKey, resolveAnthropicKey } from '@/lib/env'
 import { ensureBudget, recordSpend } from './lib/budget'
 
 /** Blueprint-named models (Part 2.2) — exact IDs, no date suffixes. */
@@ -87,8 +87,12 @@ export async function callJson<T>(opts: {
       })
     } catch (e) {
       if (e instanceof Anthropic.AuthenticationError) {
+        // Name the alias that actually loaded, not a guess: on a machine
+        // carrying both names, "check ANTHROPIC_API_KEY" sends the operator to
+        // edit the one the resolver never read.
+        const supplied = resolveAnthropicKey()?.name ?? 'ANTENNA_ANTHROPIC_KEY'
         throw new PipelineHalt(
-          'The Anthropic API rejected the key (authentication error). Check ANTHROPIC_API_KEY ' +
+          `The Anthropic API rejected the key (authentication error). Check ${supplied} ` +
           'in .env.local — it should start with sk-ant- and come from console.anthropic.com. ' +
           'Nothing was charged.',
         )

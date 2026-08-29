@@ -54,7 +54,7 @@
 
 *Delivered*: Part V enrich behind a provider interface (fixture/manual now, actor stubbed at a marked A3 wiring point; every enrichment writes an observation) · Part VI verbatim — `prompts/prescore_v1.md` and `prompts/score_v1.md` extracted programmatically from this document's 6.1/6.2 fences, `claude-haiku-4-5` / `claude-sonnet-4-6`, temp 0, fence-strip + one retry + `score_failed` flag, `score_prompt_version` stored · the Part 6.5 few-shot builder (≤10, balanced approve/reject, reasons carried) · Part X budget gates before every paid call, actual spend logged from API usage · `/ratify` per Part VII with the full keyboard (y/n/b/f/j/k/u), reason picker, every keystroke a `ratifications` row · `npm run pipeline`.
 
-*Missing key behaviour*: without `ANTHROPIC_API_KEY` the pipeline completes enrichment, then halts at the scoring step with instructions naming exactly what to add. Never a crash, never a fake score.
+*Missing key behaviour*: without an Anthropic key (`ANTENNA_ANTHROPIC_KEY`, or `ANTHROPIC_API_KEY` as fallback) the pipeline completes enrichment, then halts at the scoring step with instructions naming exactly what to add. Never a crash, never a fake score.
 
 *Verification*: 71 check assertions (new: prompts byte-identical to this document's fences · few-shot balance/exclusion properties · llm-cap and total-cap halts) · 19-assertion `/ratify` browser E2E · pipeline halt paths exercised live (no key · actor stub · both budget caps).
 
@@ -167,7 +167,7 @@ The reasoning is Law 5's *second* clause, not its first. Law 5's whitelist ("han
 Private GitHub repo `antenna` → `create-next-app` (TS, App Router, no Tailwind config beyond tokens in globals) → install `drizzle-orm better-sqlite3 drizzle-kit tsx @anthropic-ai/sdk` → schema → migrate → seed → run.
 
 ## 2.5 Environment
-`.env.local`: `ANTHROPIC_API_KEY` · `SERPER_API_KEY` · `APIFY_TOKEN`. Personal accounts (governance, Part XII). Keys never committed, never echoed in logs.
+`.env.local`: `ANTENNA_ANTHROPIC_KEY` · `SERPER_API_KEY` · `APIFY_TOKEN`. Personal accounts (governance, Part XII). Keys never committed, never echoed in logs. The Anthropic slot accepts two names in priority order — `ANTENNA_ANTHROPIC_KEY` is canonical because the deploy platform filters the reserved `ANTHROPIC_API_KEY`, which stays accepted as a fallback for local machines.
 
 ## 2.5b External services (the complete dependency list — four accounts, personal email + card)
 | Service | Role | Cost (campaign) | Needed by |

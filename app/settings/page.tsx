@@ -5,7 +5,7 @@ import { QUERY_LIBRARY_STATUS } from '@/config/queries'
 import { HASHTAG_LIBRARY_STATUS } from '@/config/hashtags'
 import { SEED_LIST_STATUS, SEED_ACCOUNTS } from '@/config/seeds'
 import { recentHarvestRuns, spendSummary } from '@/db/metrics'
-import { loadEnvLocal } from '@/lib/env'
+import { ANTHROPIC_KEY_NAMES, anthropicKeyPresent, loadEnvLocal } from '@/lib/env'
 
 export const dynamic = 'force-dynamic'
 
@@ -16,7 +16,9 @@ export default function SettingsPage() {
 
   // Presence only — a value is never read into the page (Part X: never logged).
   const keys = {
-    ANTHROPIC_API_KEY: !!process.env.ANTHROPIC_API_KEY?.trim(),
+    // Alias-aware: the platform filters the reserved name, so the key may
+    // arrive as ANTENNA_ANTHROPIC_KEY. Either name lights this lamp.
+    [ANTHROPIC_KEY_NAMES[0]]: anthropicKeyPresent(),
     SERPER_API_KEY: !!process.env.SERPER_API_KEY?.trim(),
     APIFY_TOKEN: !!process.env.APIFY_TOKEN?.trim(),
   }

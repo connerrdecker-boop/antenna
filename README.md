@@ -44,14 +44,19 @@ npm run dev         # http://localhost:3000
 `npm run migrate` on its own is only needed after you edit the schema. Seeding is optional — skip
 it and start from an empty pipeline.
 
-`.env.local` (gitignored, never committed, never logged) — `ANTHROPIC_API_KEY` is needed the
+`.env.local` (gitignored, never committed, never logged) — the Anthropic key is needed the
 moment you score; without it the pipeline enriches, then halts with instructions:
 
 ```
-ANTHROPIC_API_KEY=...   # A2: pre-score (claude-haiku-4-5) + full score (claude-sonnet-4-6)
-SERPER_API_KEY=...      # A3: seller-exhaust SERP queries
-APIFY_TOKEN=...         # A3: no-login IG data actors
+ANTENNA_ANTHROPIC_KEY=...  # A2: pre-score (claude-haiku-4-5) + full score (claude-sonnet-4-6)
+SERPER_API_KEY=...         # A3: seller-exhaust SERP queries
+APIFY_TOKEN=...            # A3: no-login IG data actors
 ```
+
+`ANTENNA_ANTHROPIC_KEY` is the canonical name: the deploy platform filters the reserved name
+`ANTHROPIC_API_KEY` out of the environment it hands the process. `ANTHROPIC_API_KEY` is still
+accepted as a fallback, so an existing local `.env.local` keeps working. First non-empty wins,
+canonical first — `npm run keys` prints which name actually loaded.
 
 Until the A3 actor lands, enrichment reads profile packets from `pipeline/fixtures/profiles.json`
 (fake, committed) and `./profiles/*.json` (real, gitignored — drop hand-assembled packets there
