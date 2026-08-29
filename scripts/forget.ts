@@ -105,7 +105,11 @@ function main(): void {
   // A child, because the database file is deleted and re-migrated and this
   // process already holds an open handle to it.
   console.log('  rebuilding the database without this person…')
-  execFileSync('npx', ['tsx', 'scripts/state-restore.ts', '--fresh', `--snapshot=${FILTERED}`], {
+  // --allow-empty: forgetting the LAST candidate legitimately produces a
+  // zero-row snapshot, and restore refuses those by default (constraint 5) —
+  // an empty snapshot is normally a truncated file, not an intention. Here it
+  // is the intention, computed two steps above, so it is passed by name.
+  execFileSync('npx', ['tsx', 'scripts/state-restore.ts', '--fresh', '--allow-empty', `--snapshot=${FILTERED}`], {
     stdio: ['ignore', 'pipe', 'inherit'],
   })
 
@@ -114,7 +118,11 @@ function main(): void {
   rmSync(FILTERED, { force: true })
 
   // ── 5. move the census to the new truth ─────────────────────────────────
-  execFileSync('npx', ['tsx', 'scripts/state-export.ts'], { stdio: 'ignore' })
+  // --allow-lower, explicitly: this is the one path in the system whose JOB is
+  // to end with fewer rows than it started with. The export refuses to lower
+  // the high-water mark otherwise, and it should — everywhere else, fewer rows
+  // means a container that was never restored.
+  execFileSync('npx', ['tsx', 'scripts/state-export.ts', '--allow-lower'], { stdio: 'ignore' })
 
   const after = openSqlite(DB_PATH)
   const still = (after.prepare('SELECT count(*) c FROM candidates WHERE handle=?').get(handle) as { c: number }).c

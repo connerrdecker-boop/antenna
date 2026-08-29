@@ -6,13 +6,17 @@
  * deliberate: a check generated from the code under test can only ever agree
  * with it. This one can catch drift.
  */
-import { existsSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import {
   CENSUS_PATH, CENSUS_SCHEMA, breachReport, censusBreaches, type Census,
 } from '@/lib/census'
 import { runDbAssertions } from '@/lib/assertions'
+import { PipelineHalt } from '@/lib/env'
 import { TOMBSTONE_PATH, handleFingerprint, readTombstones } from '@/lib/tombstones'
-import { writeStateExport, writeStateExportSafely } from '@/lib/stateExport'
+import {
+  DEFAULT_EXPORT_PATHS, SNAPSHOT_PATH, censusRegressions, writeStateExport,
+  writeStateExportSafely, type ExportPaths,
+} from '@/lib/stateExport'
 import { CAPS } from '@/config/limits'
 import { DB_PATH, openSqlite } from '@/db/connection'
 import {
@@ -44,6 +48,7 @@ import { isFetchableUrl } from '@/pipeline/lib/fetchLink'
 import { renderScorePrompt, SCORE_PROMPT_VERSION } from '@/pipeline/score'
 import { buildFewShotBlock } from '@/prompts/fewshot'
 import { runMigrations } from './migrate'
+import { assertSnapshotIsRestorable, type Snapshot } from './state-restore'
 
 // ---------------------------------------------------------- PART III canon
 
@@ -1000,15 +1005,132 @@ section('17. erasure + durability machinery (forget · restore · write-through)
   assert('the CLI and the write-through share one implementation',
     readFileSync('scripts/state-export.ts', 'utf8').includes('writeStateExport'))
 
+  // ── the export probes run on SCRATCH PATHS, never on state/ ────────────
+  // THE CLOBBER BUG, in one sentence: this section used to prove the exporter
+  // by calling it on the REAL artifacts, so running `npm run check` in a
+  // container whose database had not been restored rewrote the committed
+  // census down to that container's (empty) counts and overwrote the
+  // operator's only snapshot with an empty one. A diagnostic that destroys the
+  // evidence it is diagnosing. The probes below write to /tmp; the assertion
+  // after them proves state/ was not touched.
+  const scratch: ExportPaths = {
+    census: '/tmp/antenna-probe-census.json',
+    snapshot: '/tmp/antenna-probe-snapshot.json',
+  }
+  for (const f of Object.values(scratch)) rmSync(f, { force: true })
+
+  const realCensusBefore = existsSync(CENSUS_PATH) ? readFileSync(CENSUS_PATH, 'utf8') : null
+  const realSnapshotBefore = existsSync(SNAPSHOT_PATH) ? readFileSync(SNAPSHOT_PATH, 'utf8') : null
+
   // The census is committed AND rewritten on every ratify keystroke, so it
   // must be byte-stable when nothing changed — otherwise every decision leaves
   // a modified file in git status, and "has the census moved?" stops being a
   // signal worth reading. Behavioural, not structural: export twice and diff.
-  if (existsSync(CENSUS_PATH)) {
-    const before = readFileSync(CENSUS_PATH, 'utf8')
-    writeStateExport(sqlite)
+  {
+    const first = writeStateExport(sqlite, { paths: scratch })
+    assert('an export onto a fresh path writes', first.wrote)
+    const before = readFileSync(scratch.census, 'utf8')
+    writeStateExport(sqlite, { paths: scratch })
     assert('re-exporting an unchanged database leaves the census byte-identical',
-      readFileSync(CENSUS_PATH, 'utf8') === before)
+      readFileSync(scratch.census, 'utf8') === before)
+  }
+
+  // TRIPWIRE 1 — THE RATCHET. Hand the exporter a census claiming more than
+  // this database holds and confirm it refuses, and that it refuses ATOMICALLY:
+  // the snapshot must survive too, because the snapshot is the irreplaceable
+  // half and an export that half-runs is the clobber bug with a smaller radius.
+  {
+    const claimed = JSON.parse(readFileSync(scratch.census, 'utf8')) as Census
+    const inflated: Census = {
+      ...claimed,
+      tables: Object.fromEntries(Object.keys(claimed.tables).map((t) => [t, (claimed.tables[t] ?? 0) + 1000])),
+      spend_floor: { ...claimed.spend_floor, total: (claimed.spend_floor.total ?? 0) + 1000 },
+    }
+    writeFileSync(scratch.census, JSON.stringify(inflated, null, 2) + '\n')
+    const inflatedBytes = readFileSync(scratch.census, 'utf8')
+    const snapBytes = readFileSync(scratch.snapshot, 'utf8')
+
+    const refused = writeStateExport(sqlite, { paths: scratch })
+    assert('the ratchet REFUSES an export that would lower the census', !refused.wrote,
+      'the export wrote anyway')
+    assert('a refused export names every table that went backwards',
+      refused.regressions.some((r) => r.kind === 'rows' && r.what === 'candidates') &&
+      refused.regressions.some((r) => r.kind === 'spend' && r.what === 'total'),
+      JSON.stringify(refused.regressions.slice(0, 3)))
+    assert('a refused export leaves the census exactly as it found it',
+      readFileSync(scratch.census, 'utf8') === inflatedBytes)
+    assert('a refused export leaves the person-linked snapshot untouched (the atomic half)',
+      readFileSync(scratch.snapshot, 'utf8') === snapBytes)
+
+    // …and that the refusal is a ratchet, not a wall: --allow-lower is the
+    // door `npm run forget` walks through, so it must actually open.
+    const lowered = writeStateExport(sqlite, { paths: scratch, allowLower: true })
+    assert('--allow-lower moves the mark down on purpose', lowered.wrote &&
+      readFileSync(scratch.census, 'utf8') !== inflatedBytes)
+
+    // The rule itself, directly — a ratchet only testable through side effects
+    // is one a refactor can silently retire.
+    assert('censusRegressions reports nothing when the database is AHEAD',
+      censusRegressions({ ...claimed, tables: Object.fromEntries(Object.keys(claimed.tables).map((t) => [t, 0])), spend_floor: { serp: 0, actors: 0, llm: 0, total: 0 } }, claimed).length === 0)
+    assert('censusRegressions reports nothing when there is no prior census',
+      censusRegressions(null, claimed).length === 0)
+  }
+
+  // TRIPWIRE 2 — the one that would have caught the clobber. Everything above
+  // exercised the exporter; state/ must be byte-identical to before it did.
+  assert('npm run check never writes the committed census',
+    (existsSync(CENSUS_PATH) ? readFileSync(CENSUS_PATH, 'utf8') : null) === realCensusBefore,
+    `${CENSUS_PATH} changed during the check`)
+  assert('npm run check never writes the person-linked snapshot',
+    (existsSync(SNAPSHOT_PATH) ? readFileSync(SNAPSHOT_PATH, 'utf8') : null) === realSnapshotBefore,
+    `${SNAPSHOT_PATH} changed during the check`)
+  assert('the probe paths are not the real ones',
+    scratch.census !== DEFAULT_EXPORT_PATHS.census && scratch.snapshot !== DEFAULT_EXPORT_PATHS.snapshot)
+  for (const f of Object.values(scratch)) rmSync(f, { force: true })
+
+  // TRIPWIRE 3 — restore refuses a zero-row snapshot, and refuses it BEFORE
+  // the wipe. The ordering is the whole guarantee: a guard that runs after
+  // `--fresh` deleted the database is a post-mortem, not a tripwire.
+  {
+    const empty = {
+      schema: 1, written_at: new Date().toISOString(),
+      candidates: [], ratifications: [], status_history: [], outreach_log: [],
+      observations: [], spend: [], harvest_runs: [],
+    } as unknown as Snapshot
+
+    const refuses = (fn: () => void): string | null => {
+      try { fn(); return null } catch (e) { return e instanceof PipelineHalt ? e.message : `threw ${e}` }
+    }
+
+    const plain = refuses(() => assertSnapshotIsRestorable(empty, 'probe.json'))
+    assert('restore refuses a zero-row snapshot', plain !== null && plain.includes('zero candidates'),
+      plain ?? 'it accepted an empty snapshot')
+
+    const fresh = refuses(() => assertSnapshotIsRestorable(empty, 'probe.json', { fresh: true }))
+    assert('a --fresh restore refuses a zero-row snapshot BEFORE the wipe',
+      fresh !== null && fresh.includes('the wipe has not happened'), fresh ?? 'it accepted the wipe')
+
+    const wrongFile = refuses(() =>
+      assertSnapshotIsRestorable({ schema: 1, written_at: '' } as unknown as Snapshot, 'census.json'))
+    assert('restore refuses a file that is not a snapshot at all',
+      wrongFile !== null && wrongFile.includes('not a state snapshot'), wrongFile ?? 'it accepted it')
+
+    assert('a snapshot carrying candidates still restores',
+      refuses(() => assertSnapshotIsRestorable(
+        { ...empty, candidates: [{ handle: 'probe' }] } as unknown as Snapshot, 'probe.json')) === null)
+    assert('--allow-empty is the named door out (npm run forget uses it)',
+      refuses(() => assertSnapshotIsRestorable(empty, 'probe.json', { allowEmpty: true, fresh: true })) === null)
+
+    // Structural, and load-bearing: the guard must be CALLED before the rmSync.
+    // The behavioural assertions above prove the guard works; only source order
+    // proves main() consults it in time.
+    const restoreMain = readFileSync('scripts/state-restore.ts', 'utf8')
+    const guardAt = restoreMain.indexOf('assertSnapshotIsRestorable(snap, path')
+    const wipeAt = restoreMain.indexOf('rmSync(DB_PATH + suffix')
+    assert('the zero-row guard runs before the --fresh wipe, in source order',
+      guardAt > 0 && wipeAt > 0 && guardAt < wipeAt, `guard@${guardAt} wipe@${wipeAt}`)
+    assert('forget passes --allow-empty explicitly (its emptiness is computed, not accidental)',
+      readFileSync('scripts/forget.ts', 'utf8').includes("'--allow-empty'"))
   }
 
   // Prove it, rather than trusting the try/catch: point the exporter at a
@@ -1017,7 +1139,7 @@ section('17. erasure + durability machinery (forget · restore · write-through)
   assert('write-through reports failure instead of throwing', (() => {
     const dead = openSqlite('/tmp/antenna-writethrough-probe.db')
     dead.close()
-    try { writeStateExport(dead); return false } catch { /* expected raw */ }
+    try { writeStateExport(dead, { paths: scratch }); return false } catch { /* expected raw */ }
     try { return writeStateExportSafely.length === 0 } catch { return false }
   })())
 }
