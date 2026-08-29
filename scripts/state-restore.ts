@@ -1,7 +1,7 @@
 /**
  * `npm run state:restore` — rebuild a database from a state snapshot.
  *
- * The four ratified constraints, each load-bearing:
+ * The ratified constraints, each load-bearing:
  *
  *   1. HISTORY IS REPLAYED, NEVER WRITTEN. Every hop goes through
  *      transitionStatus() with its original timestamp, so the Part 8.2 graph
@@ -24,6 +24,15 @@
  *      path in the system that could manufacture a `qualified` row with no
  *      decision behind it, so the Law 10 assertion is part of the gate above.
  *
+ *   5. AN EMPTY SNAPSHOT IS NEVER A RESTORE. `--fresh` deletes the database
+ *      before it reads anything back, so `--fresh` against a truncated, empty,
+ *      or wrong-shaped snapshot file is total loss dressed up as a routine
+ *      command: the wipe succeeds, the restore puts nothing back, and the
+ *      census tripwire is the only thing left to notice. The snapshot is
+ *      therefore parsed and counted BEFORE the wipe, and a zero-candidate
+ *      snapshot halts with nothing touched. `npm run forget` — the one path
+ *      whose job is to end with fewer rows — passes --allow-empty by name.
+ *
  * Keyed on HANDLE throughout. Candidate ids are autoincrement and re-minted in
  * every fresh database, so an id-keyed restore lands on the wrong people.
  *
@@ -31,6 +40,7 @@
  *   npm run state:restore -- --snapshot=path.json
  *   npm run state:restore -- --fresh             # wipe and re-migrate first
  *   npm run state:restore -- --dry-run           # do everything, then roll back
+ *   npm run state:restore -- --allow-empty       # accept a zero-row snapshot
  */
 import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { DB_PATH, getSqlite } from '@/db/connection'
@@ -57,6 +67,88 @@ export type Snapshot = {
 const arg = (name: string): string | undefined =>
   process.argv.find((a) => a.startsWith(`--${name}=`))?.split('=').slice(1).join('=')
 const flag = (name: string): boolean => process.argv.includes(`--${name}`)
+
+/** Every array the snapshot carries, in the order the report prints them. */
+export const SNAPSHOT_TABLES = [
+  'candidates', 'ratifications', 'status_history', 'outreach_log',
+  'observations', 'spend', 'harvest_runs',
+] as const
+
+/**
+ * Row counts per table, for a parsed snapshot. Missing or non-array fields
+ * count as -1 rather than 0, so "the file has no candidates array" and "the
+ * file has an empty candidates array" stay distinguishable in the report — the
+ * first is the wrong file, the second is an empty one.
+ */
+export function snapshotCounts(snap: Snapshot): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const t of SNAPSHOT_TABLES) {
+    const v = (snap as unknown as Record<string, unknown>)[t]
+    out[t] = Array.isArray(v) ? v.length : -1
+  }
+  return out
+}
+
+/**
+ * THE ZERO-ROW TRIPWIRE (constraint 5).
+ *
+ * Throws PipelineHalt unless the snapshot actually carries people. Called from
+ * main() BEFORE the `--fresh` wipe — the ordering is the whole point, because
+ * after the wipe there is nothing left to protect.
+ *
+ * `candidates` is the load-bearing count: every other table in the snapshot is
+ * keyed on a candidate handle, so a snapshot with no candidates restores no
+ * person no matter what else it contains.
+ */
+export function assertSnapshotIsRestorable(
+  snap: Snapshot,
+  path: string,
+  opts: { allowEmpty?: boolean; fresh?: boolean } = {},
+): void {
+  const counts = snapshotCounts(snap)
+  const malformed = SNAPSHOT_TABLES.filter((t) => counts[t] === -1)
+  const table = SNAPSHOT_TABLES.map((t) => `    ${String(counts[t] === -1 ? 'MISSING' : counts[t]).padStart(7)}  ${t}`)
+
+  if (malformed.length) {
+    throw new PipelineHalt(
+      [
+        `RESTORE REFUSED — ${path} is not a state snapshot.`,
+        '',
+        `  Missing or non-array field(s): ${malformed.join(', ')}`,
+        '',
+        ...table,
+        '',
+        'Nothing was wiped and nothing was written. This is almost always the wrong',
+        'file — check that you installed the snapshot `npm run state:export` handed you,',
+        'and not a census, a backup index, or a truncated download.',
+      ].join('\n'),
+    )
+  }
+
+  if (counts.candidates > 0 || opts.allowEmpty) return
+
+  throw new PipelineHalt(
+    [
+      `RESTORE REFUSED — ${path} carries zero candidates.`,
+      '',
+      ...table,
+      '',
+      opts.fresh
+        ? 'You passed --fresh, which deletes the database BEFORE reading anything back.\n' +
+          'Restoring nothing over a wipe is not a restore, it is an erasure with extra\n' +
+          'steps — so the wipe has not happened and your database is untouched.'
+        : 'A snapshot with no candidates restores no one, so this would have been a\n' +
+          'no-op at best. Nothing was written.',
+      '',
+      'Most likely: the snapshot file is truncated, empty, or was written from a',
+      'container whose database had already been lost. Find the good one — it is',
+      'gitignored by design (Law 5), so it lives wherever you saved it, not in git.',
+      '',
+      'If you genuinely mean to restore an empty snapshot, say so by name:',
+      '  npm run state:restore -- --allow-empty',
+    ].join('\n'),
+  )
+}
 
 /** Columns the importer sets directly. `status` is NOT among them — see (1). */
 const SCALAR_COLUMNS = [
@@ -264,6 +356,19 @@ function main(): void {
     )
   }
 
+  // PARSE AND VET FIRST — before the wipe, always. Reading the snapshot after
+  // `--fresh` deleted the database is how an empty file becomes an erasure.
+  let snap: Snapshot
+  try {
+    snap = JSON.parse(readFileSync(path, 'utf8')) as Snapshot
+  } catch (e) {
+    throw new PipelineHalt(
+      `RESTORE REFUSED — ${path} is not valid JSON (${e instanceof Error ? e.message : String(e)}).\n` +
+      'Nothing was wiped and nothing was written.',
+    )
+  }
+  assertSnapshotIsRestorable(snap, path, { allowEmpty: flag('allow-empty'), fresh: flag('fresh') })
+
   if (flag('fresh')) {
     // Must happen before any handle is opened, which is why it lives here and
     // not inside restoreFromSnapshot.
@@ -272,7 +377,6 @@ function main(): void {
     console.log(`wiped and re-migrated ${DB_PATH}`)
   }
 
-  const snap = JSON.parse(readFileSync(path, 'utf8')) as Snapshot
   console.log(`\nRESTORE from ${path} (written ${snap.written_at})\n`)
 
   const tally = restoreFromSnapshot(snap, { dryRun: flag('dry-run') })
