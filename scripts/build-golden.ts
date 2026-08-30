@@ -66,7 +66,10 @@ const LABELS: Label[] = [
   { handle: 'koda.kammer', decision: 'bank', expected: null },
   { handle: 'michaeljuliuss', decision: 'bank', expected: null },
   { handle: 'austinalwayslifting', decision: 'reject', expected: 'not-A' },
-  { handle: 'cruzbrahh', decision: 'flag', expected: null },
+  // Flagged during the ratify pass ("activity unverifiable"), then APPROVED
+  // once the operator checked the account by hand. The newest decision is the
+  // one the set freezes.
+  { handle: 'cruzbrahh', decision: 'approve', expected: 'A' },
   { handle: 'harryraftus', decision: 'reject', expected: 'not-A' },
   { handle: 'jacknormaan', decision: 'reject', expected: 'not-A' },
   { handle: 'brandonkennedyy', decision: 'reject', expected: 'not-A' },
@@ -100,10 +103,19 @@ function main(): void {
   // silently labels the wrong person.
   const actual = new Map(
     (sqlite
+      // The NEWEST ratification per candidate, not any of them. A profile can
+      // carry several — @cruzbrahh was flagged during the ratify pass and
+      // approved afterwards once the operator had checked the account by hand —
+      // and an unordered join would pick whichever row SQLite happened to
+      // return, silently freezing a superseded decision into the golden set.
       .prepare(
         `SELECT c.handle, r.decision, c.tier, c.score, c.bio, c.follower_count, c.link_contents
            FROM candidates c
-           JOIN ratifications r ON r.candidate_id = c.id
+           JOIN ratifications r ON r.id = (
+             SELECT r2.id FROM ratifications r2
+              WHERE r2.candidate_id = c.id
+              ORDER BY r2.at DESC, r2.id DESC LIMIT 1
+           )
           WHERE c.notes LIKE '%score_context=calibration%'`,
       )
       .all() as {
