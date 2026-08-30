@@ -1,24 +1,38 @@
 /**
- * ═══════════ DRAFT — SELECTION UNVERIFIED UNTIL THE SMOKE TEST PASSES ═══════════
+ * ═══════════════ RATIFIED — apify~instagram-profile-scraper ═══════════════
  * Part 4b actor selection. The canon is explicit that this is a day-of
  * decision: "Actor names churn: the builder selects currently-maintained
  * 'Instagram hashtag scraper' / 'Instagram profile scraper'–class actors and
  * smoke-tests each with a ≤$2 run before any scale run."
  *
- * So this file names a CANDIDATE, not a choice. The id below is the
- * best-known maintained profile-scraper-class actor, but it has NOT been
- * confirmed against the live Apify store from this machine, and its output
- * schema has NOT been observed. Both happen in `npm run smoke:actor`, whose
- * whole job is to turn this draft into a ratified selection or reject it.
+ * THE SMOKE TEST THAT RATIFIED IT (npm run smoke:actor, 2026-08-29):
+ *   run       H9wnMKKDF50CPcKWn · SUCCEEDED in ~17s
+ *   handles   @heath.lifts, @tommy_lifts10, @jakeclayfit — real, un-enriched,
+ *             chosen to cover handle-format variation (dot · underscore+digit
+ *             · plain), since username formatting is where actor inputs break
+ *   charged   $0.0052 against the $2 ceiling, Apify's own figure
+ *   packets   3 of 3 complete — bio, followers, link, 12 captions, posts30d,
+ *             formatMix and engagement present on every one
+ *   mapping   username→handle · fullName→name · biography→bio ·
+ *             followersCount · private · externalUrl · latestPosts
+ *   the one NOT FOUND was real: @jakeclayfit carries `externalUrls: []` and
+ *   no externalUrl key at all — that account has no link in bio. The mapper
+ *   was right and the field was genuinely absent, which is the distinction
+ *   the raw dump exists to settle.
  *
- * The DRAFT marker is load-bearing, exactly as the A3 config markers were:
- * every real-actor code path refuses to run a SCALE job while it is set. The
- * smoke test is the one path allowed through, capped at ACTOR_SMOKE_TEST_CAP.
+ * The operator saw those packets and said go. That is what ratification IS
+ * here — a human looking at real output, never an id typed into a config.
+ *
+ * The marker stays load-bearing in the other direction now, exactly as the A3
+ * config markers did: a selection that silently regresses to DRAFT turns
+ * `npm run check` red, because un-ratifying an actor is a canon decision
+ * rather than a code change. Scale runs are open; ACTOR_SMOKE_TEST_CAP still
+ * bounds the smoke door, and lib/budget.ts still gates every paid call.
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
 export const ACTOR_SELECTION_STATUS =
-  'DRAFT (A2-calibration) — candidate ids listed, none smoke-tested; scale runs refuse until ratified'
+  'ratified v1 (2026-08-29) — apify~instagram-profile-scraper, smoke run H9wnMKKDF50CPcKWn, $0.0052, 3/3 packets complete, operator approved'
 
 /** True while no actor has passed its smoke test. Gates every scale run. */
 export function actorSelectionIsDraft(): boolean {
@@ -43,7 +57,10 @@ export type ActorCandidate = {
 export const PROFILE_ACTOR_CANDIDATES: readonly ActorCandidate[] = [
   {
     id: 'apify~instagram-profile-scraper',
-    note: 'Apify-official profile scraper. Takes bare usernames; returns profile + latestPosts.',
+    // RATIFIED — the smoke test above observed this exact input and output
+    // shape. `usernames` takes bare handles (no @, no URL) and the actor
+    // returns one item per handle carrying profile fields plus latestPosts.
+    note: 'Apify-official profile scraper. Takes bare usernames; returns profile + latestPosts. RATIFIED 2026-08-29.',
     buildInput: (handles) => ({ usernames: [...handles] }),
   },
   {

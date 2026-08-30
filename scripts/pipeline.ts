@@ -2,12 +2,12 @@
  * The pipeline runner (Part 2.1's spine, minus harvest — that lands in A3):
  *
  *   1. bootstrap-enrich  candidates with no bio (manual adds) get a profile
- *   2. pre-score         bio-only, claude-haiku-4-5   [needs ANTHROPIC_API_KEY]
+ *   2. pre-score         bio-only, claude-haiku-4-5   [needs an Anthropic key]
  *   3. enrich            pre_score >= threshold, not yet enriched
  *   4. full score        enriched + above threshold,  claude-sonnet-4-6
  *
  * Run:  npm run pipeline                    (fixture/manual provider)
- *       npm run pipeline -- --provider=actor   (halts: A3 wiring point)
+ *       npm run pipeline -- --provider=actor   (the ratified Apify actor)
  *       npm run pipeline -- --limit=20
  *
  * Halts (missing key, budget cap, actor stub) are clean stops with operator
@@ -19,6 +19,7 @@ import { loadEnvLocal, PipelineHalt } from '@/lib/env'
 import { enrichCandidate } from '@/pipeline/enrich'
 import { prescoreCandidate } from '@/pipeline/prescore'
 import { actorProvider } from '@/pipeline/providers/actor'
+import { prefetch } from '@/pipeline/providers/prefetch'
 import { fixtureProvider } from '@/pipeline/providers/fixture'
 import { scoreCandidate } from '@/pipeline/score'
 import type { ProfileProvider } from '@/pipeline/types'
@@ -65,13 +66,28 @@ async function main() {
   // 1. Bootstrap enrichment: only rows with NOTHING to pre-score on — no bio
   //    AND no link_domain (manual adds). Harvest-sourced rows carry one or the
   //    other and go straight to the cheap filter first (the spine's whole point).
+  //
+  //    ONE ROUND TRIP, NOT N. prefetch() runs the provider's batch door once
+  //    and hands back a provider serving those results from memory, so the
+  //    per-candidate loop below is untouched — same Part V gate, same
+  //    observation write per candidate — while 32 handles cost ONE actor run
+  //    instead of 32. That distinction is real money and real time on a paid
+  //    provider: an actor run's cost is mostly per-run overhead, not per-item,
+  //    and 32 startups also take ~30x as long. A provider with no batch door
+  //    (the fixture) is passed through untouched and the loop behaves exactly
+  //    as it did before.
   console.log('\n[1/4] bootstrap enrich (candidates with no profile data yet)')
-  for (const c of pending().filter((c) => !c.bio?.trim() && !c.link_domain?.trim())) {
-    const outcome = await enrichCandidate(c, provider)
+  const bootstrapRows = pending().filter((c) => !c.bio?.trim() && !c.link_domain?.trim())
+  const batch = await prefetch(provider, bootstrapRows.map((c) => c.handle))
+  if (batch.batched) {
+    console.log(`  batched: one ${provider.name} run for ${bootstrapRows.length} handle(s) — ${batch.fetched} packet(s) returned`)
+  }
+  for (const c of bootstrapRows) {
+    const outcome = await enrichCandidate(c, batch.provider)
     if (outcome === 'enriched') { tally.bootstrapped++; console.log(`  enriched @${c.handle}`) }
     else if (outcome === 'no_data') {
       tally.noData++
-      console.log(`  no packet for @${c.handle} — drop one into ./profiles/*.json (actor provider arrives in A3)`)
+      console.log(`  no packet for @${c.handle} — the actor returned nothing for this handle (private, renamed, or gone)`)
     }
   }
 

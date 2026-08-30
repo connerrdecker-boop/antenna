@@ -697,10 +697,20 @@ section('14. a prescore-killed candidate can never re-enter a gate (Law 7 leak c
 //     bounds, and a mapper that cannot quietly invent data.
 section('15. actor wiring — selection gate, Law 3, cost bounds, mapping (Part 4b)')
 {
-  // 15a. The selection gate. An actor is ratified by passing a smoke test in
-  // front of the operator, never by being typed into a config file.
-  assert('actor selection carries the DRAFT marker until a smoke test passes',
-    ACTOR_SELECTION_STATUS.startsWith('DRAFT') && actorSelectionIsDraft(), ACTOR_SELECTION_STATUS)
+  // 15a. The selection gate, now RATIFIED. An actor is ratified by passing a
+  // smoke test in front of the operator, never by being typed into a config
+  // file — apify~instagram-profile-scraper passed its $0.0052 run on
+  // 2026-08-29 (3/3 complete packets) and the operator approved it.
+  //
+  // This assertion FLIPPED from "carries the DRAFT marker", exactly as the
+  // three A3 library markers did in section 13: a selection that silently
+  // regresses to DRAFT now goes red, because un-ratifying an actor is a canon
+  // decision, not a code change.
+  assert('actor selection is ratified, not DRAFT',
+    ACTOR_SELECTION_STATUS.startsWith('ratified') && !actorSelectionIsDraft(), ACTOR_SELECTION_STATUS)
+  assert('the ratified marker records the evidence (which run, what it cost)',
+    /H9wnMKKDF50CPcKWn/.test(ACTOR_SELECTION_STATUS) && /\$0\.0052/.test(ACTOR_SELECTION_STATUS),
+    ACTOR_SELECTION_STATUS)
   assert('at least two candidate actors are listed (names churn — Part 4b)',
     PROFILE_ACTOR_CANDIDATES.length >= 2)
   assert('the default candidate is the first listed', DEFAULT_PROFILE_ACTOR === PROFILE_ACTOR_CANDIDATES[0])
@@ -711,20 +721,19 @@ section('15. actor wiring — selection gate, Law 3, cost bounds, mapping (Part 
   }
 
   asyncProbes.push((async () => {
-    // A SCALE run refuses while DRAFT — and refuses for that reason even when
-    // a token IS present, or the gate would just be the token check wearing a
-    // different hat.
-    process.env.APIFY_TOKEN = 'apify_api_check_suite_placeholder'
-    const scaleMsg = await halted(() => actorProvider().fetchProfiles!(['someone']))
-    assert('a SCALE run refuses while the selection is DRAFT',
-      /DRAFT/.test(scaleMsg) && /smoke/i.test(scaleMsg), scaleMsg.slice(0, 90))
-    assert('the DRAFT refusal names no charge', /[Nn]othing was charged/.test(scaleMsg))
-
-    // The smoke door is the one path through the DRAFT gate: it must get PAST
-    // it and stop at the next real prerequisite instead.
+    // With the selection ratified, a SCALE run must now get PAST the selection
+    // gate and stop at the next real prerequisite — the token. Before
+    // ratification this asserted the exact opposite. What must never hold is a
+    // scale run that clears BOTH: the token check is what stands between a
+    // ratified actor and an unauthenticated charge.
     delete process.env.APIFY_TOKEN
+    const scaleMsg = await halted(() => actorProvider().fetchProfiles!(['someone']))
+    assert('a SCALE run passes the ratified selection gate and stops at the token',
+      /APIFY_TOKEN/.test(scaleMsg) && !/DRAFT/.test(scaleMsg), scaleMsg.slice(0, 90))
+
+    // The smoke door still works, and still stops at the same prerequisite.
     const smokeMsg = await halted(() => actorProvider({ smokeTest: true }).fetchProfiles!(['someone']))
-    assert('the SMOKE door passes the DRAFT gate and stops at the token',
+    assert('the SMOKE door still runs after ratification and stops at the token',
       /APIFY_TOKEN/.test(smokeMsg) && !/DRAFT/.test(smokeMsg), smokeMsg.slice(0, 90))
     assert('the token halt names the file and the account to fix it',
       /\.env\.local/.test(smokeMsg) && /apify\.com/.test(smokeMsg))
