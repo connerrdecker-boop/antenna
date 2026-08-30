@@ -48,6 +48,7 @@ async function main() {
     metro,
     provider: (arg('provider') ?? 'fixture') as AdapterParams['provider'],
     maxQueries: arg('max-queries') ? Number(arg('max-queries')) : undefined,
+    maxTags: arg('max-tags') ? Number(arg('max-tags')) : undefined,
     limitPerTag: arg('limit') ? Number(arg('limit')) : undefined,
   }
 

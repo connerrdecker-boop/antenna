@@ -38,6 +38,8 @@ export type AdapterParams = {
   provider: 'fixture' | 'real'
   /** Optional narrowing for a cheaper run. */
   maxQueries?: number
+  /** Cap the hashtag sweep to the first N tags — the 4b twin of maxQueries. */
+  maxTags?: number
   limitPerTag?: number
   log?: (line: string) => void
 }
