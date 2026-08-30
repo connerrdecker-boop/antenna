@@ -23,7 +23,13 @@ function tagsFor(params: AdapterParams): string[] {
 
 async function run(params: AdapterParams): Promise<CandidateSeed[]> {
   const log = params.log ?? console.log
-  const provider = params.provider === 'real' ? apifyActorProvider() : fixtureActorProvider()
+  // onSpend is threaded through so the ACTOR'S RECEIPT reaches the ledger.
+  // Without it the run banks estimateCost(), which for an Apify actor is a
+  // guess standing where a real figure exists — the Law 6 ledger disagreeing
+  // with the bill.
+  const provider = params.provider === 'real'
+    ? apifyActorProvider({ onSpend: params.onSpend })
+    : fixtureActorProvider()
   const tags = tagsFor(params)
   const limit = params.limitPerTag ?? DEFAULT_LIMIT_PER_TAG
   log(`  ${tags.length} hashtags × up to ${limit} profiles each (${provider.name})`)
