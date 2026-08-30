@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "written_at": "2026-08-30T01:33:58.711Z",
+  "written_at": "2026-08-30T01:45:32.795Z",
   "tables": {
     "candidates": 43,
     "ratifications": 37,
     "observations": 63,
     "outreach_log": 7,
-    "status_history": 88,
+    "status_history": 96,
     "spend": 84,
     "harvest_runs": 27
   },

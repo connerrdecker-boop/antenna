@@ -16,6 +16,7 @@
     "calibrate": "tsx scripts/calibrate.ts",
     "ratify:sheet": "tsx scripts/ratify-sheet.ts",
     "verdicts": "tsx scripts/enter-verdicts.ts",
+    "verdicts:reasons": "tsx scripts/amend-approve-reasons.ts",
     "harvest": "tsx scripts/harvest.ts",
     "smoke:actor": "tsx scripts/smoke-actor.ts",
     "state:export": "tsx scripts/state-export.ts",

@@ -137,6 +137,16 @@ export function runDbAssertions(sqlite: BetterSqlite3.Database): AssertionResult
   // Scoped to the sourced -> qualified hop, which IS the ratify-queue door;
   // `banked -> qualified` is the drawer's manual move (ratified A1) and
   // carries no queue decision by design.
+  // THE UNDO CLAUSE (added at the A2 close, after the app's own `u` key turned
+  // this red). Undo deletes the erroneous ratification but canon deliberately
+  // KEEPS the status_history round trip — "the history keeps the truth that the
+  // round-trip happened" — so an undone hop is permanently unbacked by design.
+  // Without this clause a single undo keystroke in /ratify made the suite red
+  // and stayed that way, which would have taught the operator to ignore it.
+  //
+  // Law 10 is untouched: a hop is excused only when a LATER `qualified ->
+  // sourced` hop shows the decision was withdrawn. A candidate sitting at
+  // qualified with no approve behind it still fails, which is the guarantee.
   const unratified = q<{ handle: string; at: string }>(
     `SELECT c.handle, h.at
        FROM status_history h JOIN candidates c ON c.id = h.candidate_id
@@ -144,6 +154,12 @@ export function runDbAssertions(sqlite: BetterSqlite3.Database): AssertionResult
         AND NOT EXISTS (
           SELECT 1 FROM ratifications r
            WHERE r.candidate_id = c.id AND r.decision = 'approve' AND r.at <= h.at
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM status_history u
+           WHERE u.candidate_id = h.candidate_id
+             AND u.from_status = 'qualified' AND u.to_status = 'sourced'
+             AND u.at >= h.at
         )`,
   )
   add('every sourced->qualified hop is backed by an approve ratification (Law 10)',

@@ -11,6 +11,7 @@ import {
   CENSUS_PATH, CENSUS_SCHEMA, breachReport, censusBreaches, type Census,
 } from '@/lib/census'
 import { killedEnrichmentBreaches, runDbAssertions, type KillEnrichRow } from '@/lib/assertions'
+import { minorIndication } from '@/lib/eligibility'
 import {
   assertNamedStore, personLinkedKeysFrom, purgePersonLinked,
   PERSON_LINKED_KEYS, STATE_STORE_NAME, STORE_KEYS,
@@ -354,6 +355,44 @@ section('6. observations are append-only — no UPDATE path exists (Law 9)')
         p.exec(`INSERT OR REPLACE INTO observations (id,handle,observed_at,follower_count,source) VALUES (${oid},'probe','${at}',999999,'probe')`))
       const now = p.prepare('SELECT follower_count FROM observations WHERE id=?').get(oid) as { follower_count: number | null }
       return aborted && now.follower_count !== 999999
+    } catch { return false }
+  })())
+
+  // THE UNDO CLAUSE ON THE LAW 10 ASSERTION, proven both ways. Undo deletes
+  // the ratification but canon KEEPS the history round trip, so an undone
+  // sourced->qualified hop is permanently unbacked by design — before the
+  // clause existed, one `u` keystroke in /ratify turned the suite red forever.
+  // The clause must excuse exactly that and nothing else.
+  assert('Law 10 EXCUSES a sourced->qualified hop that was later undone', (() => {
+    try {
+      p.exec(`INSERT INTO candidates (handle,source,first_seen,created_at,updated_at) VALUES ('undoprobe','check','${at}','${at}','${at}')`)
+      const cid = (p.prepare("SELECT id FROM candidates WHERE handle='undoprobe'").get() as { id: number }).id
+      // approve -> qualified, then undo back to sourced, ratification deleted.
+      p.prepare('INSERT INTO status_history (candidate_id,from_status,to_status,at,note) VALUES (?,?,?,?,?)')
+        .run(cid, 'sourced', 'qualified', '2026-01-01T00:00:00.000Z', 'ratify approve')
+      p.prepare('INSERT INTO status_history (candidate_id,from_status,to_status,at,note) VALUES (?,?,?,?,?)')
+        .run(cid, 'qualified', 'sourced', '2026-01-01T00:01:00.000Z', 'ratify undo (approve)')
+      return !runDbAssertions(p).some(
+        (r) => r.label.startsWith('every sourced->qualified hop') && !r.ok,
+      )
+    } catch { return false }
+  })())
+
+  // ...and still bites on a hop that was NEVER withdrawn. Without this, the
+  // clause above could be widened to "excuse everything" and stay green.
+  assert('Law 10 still FAILS a qualified candidate with no approve behind it', (() => {
+    try {
+      p.exec(`INSERT INTO candidates (handle,source,first_seen,created_at,updated_at) VALUES ('law10probe','check','${at}','${at}','${at}')`)
+      const cid = (p.prepare("SELECT id FROM candidates WHERE handle='law10probe'").get() as { id: number }).id
+      p.prepare('INSERT INTO status_history (candidate_id,from_status,to_status,at,note) VALUES (?,?,?,?,?)')
+        .run(cid, 'sourced', 'qualified', '2026-01-02T00:00:00.000Z', 'minted with no decision')
+      const red = runDbAssertions(p).some(
+        (r) => r.label.startsWith('every sourced->qualified hop') && !r.ok,
+      )
+      // Clean up so the probe does not poison later assertions in this section.
+      p.prepare('DELETE FROM status_history WHERE candidate_id=?').run(cid)
+      p.prepare('DELETE FROM candidates WHERE id=?').run(cid)
+      return red
     } catch { return false }
   })())
 
@@ -1192,6 +1231,71 @@ section('17. erasure + durability machinery (forget · restore · write-through)
     try { writeStateExport(dead, { paths: scratch }); return false } catch { /* expected raw */ }
     try { return writeStateExportSafely.length === 0 } catch { return false }
   })())
+}
+
+// 19. Eligibility — the hard gate that runs before anything is paid for.
+//     Ratified at the A2 close: an account holder who is a minor is not a
+//     prospect at any score, so it is a gate in code rather than a rubric line
+//     the model can trade off against a good DM funnel.
+const stripCommentsGlobal = (s: string) =>
+  s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+
+section('19. eligibility gate — minors are ineligible, before any paid call')
+{
+  // 19a. It fires on the shapes it must. The first is the precedent case,
+  // @tommy_lifts10 (#17 in the A2 ratify pass), verbatim.
+  const catches: [string, string][] = [
+    ['the precedent case (#17, @tommy_lifts10)', '16y / I want to inspire you\n@gymshark athlete in progress'],
+    ['explicit "years old"', 'Lifting since forever. 17 years old. DM for coaching'],
+    ['compact yo', '15yo | natural bodybuilder'],
+    ['slashed y/o', 'coach · 16 y/o · Miami'],
+    ['an age label', 'Name here | Age: 14 | grinding'],
+    ['abbreviated yrs', '13 yrs and already deadlifting 2x bodyweight'],
+  ]
+  for (const [label, bio] of catches) {
+    assert(`minor detected — ${label}`, minorIndication(bio) !== null, JSON.stringify(bio.slice(0, 48)))
+  }
+
+  // 19b. IT MUST NOT FIRE ON ADULTS. This is the expensive direction: a false
+  // positive silently deletes a real prospect with no model call and no
+  // evidence anyone would think to question, so the stand-down cases carry
+  // more weight here than the catches above.
+  const standDowns: [string, string][] = [
+    ['a credential, not an age', 'Online coach · 17 years experience · DM me READY'],
+    ['years OF experience', '16 years of coaching men over 40'],
+    ['a program length', 'My 16 week transformation program — link below'],
+    ['a challenge length', 'Join the 12 week challenge. 16 week option too.'],
+    ['a rep range', 'Volume work: 10-16 reps, 4 sets'],
+    ['a calendar year', 'Competing since 2016. Coaching since 2017.'],
+    ['a bare number', 'Down 16 pounds in 8 weeks — here is how'],
+    ['a weight in kg', 'Started with the 16kg kettlebell'],
+    ['an empty bio', ''],
+    ['years in the game', '15 years in the game, still learning'],
+  ]
+  for (const [label, bio] of standDowns) {
+    const hit = minorIndication(bio)
+    assert(`NOT a minor — ${label}`, hit === null, hit ? `fired on "${hit.matched}"` : '')
+  }
+  assert('a null bio is not an indication', minorIndication(null) === null)
+
+  // 19c. The gate is wired ahead of the paid call, and forces X in code.
+  const scoreSrc = stripCommentsGlobal(readFileSync('pipeline/score.ts', 'utf8'))
+  const gateAt = scoreSrc.indexOf('minorIndication(')
+  const callAt = scoreSrc.indexOf('callJson(')
+  assert('the eligibility gate runs BEFORE the paid score call, in source order',
+    gateAt > 0 && callAt > 0 && gateAt < callAt, `gate@${gateAt} call@${callAt}`)
+  assert('a detected minor is forced to tier X in code, not asked of the model',
+    /minor[\s\S]{0,400}tier = 'X'/.test(scoreSrc))
+  assert('the eligibility X leaves score_prompt_version NULL (no prompt ran)',
+    !/minor[\s\S]{0,400}score_prompt_version/.test(scoreSrc))
+  assert('the eligibility finding is written to evidence, so /ratify shows WHY',
+    /GATE eligibility/.test(readFileSync('pipeline/score.ts', 'utf8')))
+
+  // 19d. Captions are deliberately NOT scanned: "my 16 year old client" is an
+  // adult's sentence, and scanning them would manufacture false positives.
+  assert('captions are not scanned for age markers (an adult writes about minors)',
+    minorIndication('Online coach for busy dads') === null &&
+    !/captions/.test(stripCommentsGlobal(readFileSync('lib/eligibility.ts', 'utf8'))))
 }
 
 // 18. The remote state store (ratified 2026-08-30) — the PRIMARY durability

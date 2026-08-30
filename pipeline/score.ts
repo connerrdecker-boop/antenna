@@ -16,6 +16,7 @@ import { METRO_TERMS } from '@/config/metros'
 import { getSqlite } from '@/db/connection'
 import type BetterSqlite3 from 'better-sqlite3'
 import type { Tier } from '@/db/enums'
+import { minorIndication } from '@/lib/eligibility'
 import { assembleScorePrompt } from '@/prompts/fewshot'
 import { callJson, MODELS } from './llm'
 import type { ScoreResult } from './types'
@@ -145,6 +146,7 @@ export async function scoreCandidate(
     bio: string | null
     follower_count: number | null
     link_contents: string | null
+    name?: string | null
   },
   /**
    * The enrichment packet, for captions and tags — Part 6.2's INPUT includes
@@ -156,6 +158,31 @@ export async function scoreCandidate(
   packet?: { captions?: string[]; tags?: string[]; isPrivate?: boolean | null } | null,
 ): Promise<ScoreOutcome> {
   const sqlite = getSqlite()
+
+  // ── ELIGIBILITY, BEFORE ANYTHING IS PAID FOR (ratified A2 close) ────────
+  // A minor is not a prospect at any score, so this is a gate rather than a
+  // rubric line: it forces X without a model call and without weighing the
+  // finding against a good DM funnel. The row still enters /ratify — the
+  // operator has the last word here exactly as they do on a private account.
+  // `score_prompt_version` stays NULL, the marker that no prompt ran.
+  const minor = minorIndication(candidate.bio, candidate.name ?? null)
+  if (minor) {
+    const at = new Date().toISOString()
+    sqlite
+      .prepare(
+        `UPDATE candidates SET score = 0, tier = 'X', score_failed = 0,
+           evidence = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(
+        JSON.stringify([
+          `GATE eligibility: FAIL — ${minor.why} (matched "${minor.matched}")`,
+          'ineligible regardless of score: an account holder who is a minor is not a prospect',
+          'scored X deterministically before any paid call (operator ruling, A2 calibration close)',
+        ]),
+        at, candidate.id,
+      )
+    return { ok: true, tier: 'X', score: 0, claimed: null }
+  }
 
   // A private account is an honest X, and a FREE one (Law 5 / operator ruling,
   // A2 calibration). Its posts are not public, so alive_30d and the whole
