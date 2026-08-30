@@ -53,3 +53,10 @@ antenna.db*
 # and per-candidate reasoning — so it follows snapshot.json out of git history
 # for the same Law 5 reason: delete-on-request must stay trivial.
 /state/calibration/
+
+# Golden set (Part 6.6). The LABELS (golden/set.json) are person-free —
+# fingerprints, decisions, expected tiers — and are COMMITTED, because the
+# regression contract must be versioned with the code it guards. The frozen
+# scorer INPUTS are bios and captions, so they follow snapshot.json out of git
+# for the same Law 5 reason and travel by the remote store instead.
+/golden/inputs.json

@@ -1,0 +1,234 @@
+{
+  "schema": 1,
+  "built_at": "2026-08-30T01:32:19.588Z",
+  "source": "A2 calibration batch, 32 profiles, frozen at the operator ratify pass",
+  "prompt_version": "score_v2",
+  "agreement_threshold": 0.9,
+  "note": "Person-free by construction: fingerprints and labels only. The frozen scorer inputs live in golden/inputs.json, which is gitignored (Law 5) and carried by the remote state store. Fingerprints are pseudonymous, not anonymous — see lib/tombstones.ts.",
+  "entries": [
+    {
+      "fp": "8b6543cda022b70f",
+      "decision": "bank",
+      "expected": null,
+      "scored_tier": "B",
+      "scored_score": 68
+    },
+    {
+      "fp": "381e72005afd125a",
+      "decision": "approve",
+      "expected": "A",
+      "scored_tier": "B",
+      "scored_score": 63
+    },
+    {
+      "fp": "0525d12652396eee",
+      "decision": "approve",
+      "expected": "A",
+      "scored_tier": "B",
+      "scored_score": 62
+    },
+    {
+      "fp": "a8ef07a60b184977",
+      "decision": "bank",
+      "expected": null,
+      "scored_tier": "B",
+      "scored_score": 62
+    },
+    {
+      "fp": "57d6f5c4d6c88c24",
+      "decision": "approve",
+      "expected": "A",
+      "scored_tier": "B",
+      "scored_score": 61
+    },
+    {
+      "fp": "0f0ef330f1e2ea5f",
+      "decision": "approve",
+      "expected": "A",
+      "scored_tier": "B",
+      "scored_score": 61
+    },
+    {
+      "fp": "14ac036a96d1c4eb",
+      "decision": "bank",
+      "expected": null,
+      "scored_tier": "B",
+      "scored_score": 58
+    },
+    {
+      "fp": "95bd94bdce0aff90",
+      "decision": "bank",
+      "expected": null,
+      "scored_tier": "C",
+      "scored_score": 44
+    },
+    {
+      "fp": "cd66dfe38cd2b8f1",
+      "decision": "reject",
+      "expected": "not-A",
+      "scored_tier": "X",
+      "scored_score": 39
+    },
+    {
+      "fp": "1b7a7fcfd7a7d5f2",
+      "decision": "flag",
+      "expected": null,
+      "scored_tier": "X",
+      "scored_score": 39
+    },
+    {
+      "fp": "bbd7ad5548446695",
+      "decision": "reject",
+      "expected": "not-A",
+      "scored_tier": "X",
+      "scored_score": 39
+    },
+    {
+      "fp": "6fb1afb88d885a3e",
+      "decision": "reject",
+      "expected": "not-A",
+      "scored_tier": "X",
+      "scored_score": 35
+    },
+    {
+      "fp": "45f9403c025c6562",
+      "decision": "reject",
+      "expected": "not-A",
+      "scored_tier": "X",
+      "scored_score": 34
+    },
+    {
+      "fp": "4405d9ba7f60b459",
+      "decision": "bank",
+      "expected": null,
+      "scored_tier": "X",
+      "scored_score": 32
+    },
+    {
+      "fp": "a7e00ea4bd76831d",
+      "decision": "reject",
+      "expected": "not-A",
+      "scored_tier": "X",
+      "scored_score": 29
+    },
+    {
+      "fp": "6da8e5d656d86811",
+      "decision": "reject",
+      "expected": "not-A",
+      "scored_tier": "X",
+      "scored_score": 27
+    },
+    {
+      "fp": "46ec50226dea6e36",
+      "decision": "reject",
+      "expected": "not-A",
+      "scored_tier": "X",
+      "scored_score": 27
+    },
+    {
+      "fp": "e4d8181bb3f5fd6d",
+      "decision": "reject",
+      "expected": "not-A",
+      "scored_tier": "X",
+      "scored_score": 26
+    },
+    {
+      "fp": "a01a0e7bc161dbe9",
+      "decision": "reject",
+      "expected": "not-A",
+      "scored_tier": "X",
+      "scored_score": 25
+    },
+    {
+      "fp": "33c0cfc87a9b8cac",
+      "decision": "reject",
+      "expected": "not-A",
+      "scored_tier": "X",
+      "scored_score": 25
+    },
+    {
+      "fp": "ed186452626e1f6d",
+      "decision": "bank",
+      "expected": null,
+      "scored_tier": "X",
+      "scored_score": 24
+    },
+    {
+      "fp": "c75ad7a67c439956",
+      "decision": "reject",
+      "expected": "not-A",
+      "scored_tier": "X",
+      "scored_score": 24
+    },
+    {
+      "fp": "85fb3ee0f44b2a4c",
+      "decision": "reject",
+      "expected": "not-A",
+      "scored_tier": "X",
+      "scored_score": 24
+    },
+    {
+      "fp": "7fa9f6786c249167",
+      "decision": "reject",
+      "expected": "not-A",
+      "scored_tier": "X",
+      "scored_score": 24
+    },
+    {
+      "fp": "3ec28ac5b28aa96a",
+      "decision": "reject",
+      "expected": "not-A",
+      "scored_tier": "X",
+      "scored_score": 24
+    },
+    {
+      "fp": "3a4357a0bbb8674b",
+      "decision": "reject",
+      "expected": "not-A",
+      "scored_tier": "X",
+      "scored_score": 24
+    },
+    {
+      "fp": "65010d41702a8d57",
+      "decision": "reject",
+      "expected": "not-A",
+      "scored_tier": "X",
+      "scored_score": 22
+    },
+    {
+      "fp": "737f7ccbfae2db2f",
+      "decision": "reject",
+      "expected": "not-A",
+      "scored_tier": "X",
+      "scored_score": 22
+    },
+    {
+      "fp": "2ad7786a67322e89",
+      "decision": "reject",
+      "expected": "not-A",
+      "scored_tier": "X",
+      "scored_score": 22
+    },
+    {
+      "fp": "9c3c76d30d2d5ac9",
+      "decision": "reject",
+      "expected": "not-A",
+      "scored_tier": "X",
+      "scored_score": 22
+    },
+    {
+      "fp": "c1d7168a0cdc0e70",
+      "decision": "reject",
+      "expected": "not-A",
+      "scored_tier": "X",
+      "scored_score": 20
+    },
+    {
+      "fp": "344fa3d7bfbcf2c8",
+      "decision": "reject",
+      "expected": "not-A",
+      "scored_tier": "X",
+      "scored_score": 20
+    }
+  ]
+}

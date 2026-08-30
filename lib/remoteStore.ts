@@ -53,6 +53,8 @@ export const STORE_KEYS = {
   tombstones: 'tombstones',
   calibrationBatch: 'calibration-batch',
   calibrationPackets: 'calibration-packets',
+  /** Part 6.6's FROZEN scorer inputs — bios and captions, so person-linked. */
+  goldenInputs: 'golden-inputs',
 } as const
 
 /** Person-linked records — what a forget must purge and re-push. */
@@ -60,6 +62,7 @@ export const PERSON_LINKED_KEYS: readonly string[] = [
   STORE_KEYS.snapshot,
   STORE_KEYS.calibrationBatch,
   STORE_KEYS.calibrationPackets,
+  STORE_KEYS.goldenInputs,
 ]
 
 export type Store = { id: string; name: string }

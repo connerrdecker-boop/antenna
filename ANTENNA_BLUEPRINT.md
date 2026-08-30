@@ -34,6 +34,10 @@
 
 *The Law 7 carve-out (ratified)*: the batch was enriched **before** it was pre-scored, so 26 rows carry both a sub-threshold `pre_score` and an enrichment timestamp — which the old assertion read as a leak. The leak it actually guards is *money*: paying to enrich something the cheap filter already killed. So the predicate is now **temporal, not positional** — enrichment *before* the pre-score is allowed, enrichment *after* stays red, and **unprovable ordering fails closed**, because an invariant that assumes innocence when it cannot tell is not an invariant. Ordering is read from the **ledger** (`spend.run_ref = 'prescore:<handle>'`), not from `updated_at`, because a spend row is append-only and survives export/restore while `updated_at` is rewritten by every later write. `check.ts` §14 proves the carve-out **both ways**.
 
+*The ratify pass, and the finding that came out of it*: **approve 4 · reject 21 · bank 6 · flag 1**, every verdict entered through `applyRatifyDecision` so the Part 8.2 graph, the Law 10 gate and the write-through fired as they would from the keyboard. Reject reasons went to the canon picker (Part VII line 374) with the operator's verbatim wording preserved on `notes`, since the picker's seven words are narrower than the verdicts and the verdicts are the Part 6.5 training signal.
+
+***`check:golden` is RED at 84%, and the red is the finding.*** All four disagreements are the four approvals, each scored **B**, none scored A. The cause is arithmetic, not taste: **30 of 32 profiles scored `metro` 0/15**, and every approved profile also scored `size_band` 5/20. With those two dimensions at floor the maximum reachable score is **25+5+0+15+10+5 +10 = 70**, and tier A needs **75** — so **A was structurally unreachable for this entire batch** before the model read a single caption. The four approvals are maxed everywhere they *could* earn: `dm_run` 22–23/25, `online_purity` 13/15, `activity` 8–9/10. The scorer and the operator have not disagreed about these coaches; the rubric allocates **35 of 90 points to metro and size**, and a batch sourced by hashtag and SERP rather than by metro cannot earn them. That is the same defect the pre-score band showed, one layer deeper, and it is the input to the band decision rather than something to tune away.
+
 *The actor, re-ratified for git*: `config/actors.ts` had only ever read DRAFT in git history, while the ledger showed a smoke test followed by a 32-handle scale run. The ratification had lived in an uncommitted working tree and died with the container. It is now recorded in the file with its full evidence — smoke `H9wnMKKDF50CPcKWn` $0.0052 3/3 · scale `QI1TA8oJBccV0BHp3` 32 handles $0.0806 · `calibrate:refetch` 32/32 $0.0312 — and that same lesson is why the remote store (Part X.3) exists.
 
 **A2-calibration — durability, erasure, and four verified defects · 2026-08-28 · shipped and RATIFIED.** Commits: `d41ee9e` calibration wiring · `cae716e` durability tripwire + two Law holes · `+ durability: restore, forget, write-through + canon update`.
@@ -364,6 +368,17 @@ Model `claude-sonnet-4-6`, temp 0. Strip code fences, parse; on invalid JSON ret
 
 ## 6.6 The golden set (`golden/set.json` — scoring's regression test)
 During A2, hand-label **30 frozen profiles** (≈10 clear-A, 10 B/C, 10 X) with expected tiers. `npm run check:golden` re-scores the set against the current prompt+few-shot and asserts **≥90% tier agreement on A-vs-not-A**. Run after every prompt or few-shot change. This is how "tune the rubric" never silently becomes "break the rubric."
+
+**Built, 2026-08-30 — and split in two (ratified).** The set was frozen from the 32-profile calibration batch at the operator's ratify pass. Part 6.6 wants *frozen* inputs — a regression test whose inputs drift is not a regression test — but the scorer's input is a bio and six captions, which is person-linked, while Part 2.3 lists `golden/set.json` as **committed** and describes it as *"our tier labels"*. Those fit together exactly one way:
+
+- **`golden/set.json`** — a handle **fingerprint**, the operator's decision, the transcribed expected tier, and the score at freeze time. Person-free, **committed**, so the regression contract is versioned with the code that it guards.
+- **`golden/inputs.json`** — the frozen scorer input keyed by the same fingerprint. Person-linked, therefore **gitignored**, carried by the Part X.3 store, and purged by `npm run forget` like every other copy. Committing it would put a coach's bio in git history, where "trivial delete-on-request" becomes a history rewrite.
+
+**The tiers are transcribed, not derived** — written out by hand from the verdicts, exactly as `check.ts` transcribes `CANON_TRANSITIONS` rather than importing `lib/status.ts`. A golden set built by `SELECT`ing the tiers the scorer produced could only ever agree with the scorer, and would catch nothing.
+
+**Two modes, because this is chained into `npm run check`.** A live re-score is 32 frontier calls — real money, and it needs a key — so the default compares the **stored** scores to the labels with no model calls, and `--rescore` does the canon re-score through the current prompt and few-shot block. Only `--rescore` can see a prompt edit, so that is the one to run after changing one.
+
+`bank` and `flag` are frozen but **excluded from the metric**: a banked profile is a real coach held for a later wave, and scoring that as a failure would train the rubric to reject good coaches for being early.
 
 ---
 

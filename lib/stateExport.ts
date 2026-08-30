@@ -39,6 +39,12 @@ export const SNAPSHOT_PATH = 'state/snapshot.json'
  */
 export const CALIBRATION_ARTIFACT_PATH = 'state/calibration/batch.json'
 export const CALIBRATION_PACKETS_PATH = 'state/calibration/packets.json'
+/**
+ * Part 6.6's frozen scorer inputs. Person-linked (bios, captions), so
+ * gitignored and carried by the store like the snapshot — the LABELS in
+ * golden/set.json are person-free and committed instead.
+ */
+export const GOLDEN_INPUTS_PATH = 'golden/inputs.json'
 
 /** Where an export writes. Overridable so probes can exercise it on scratch files. */
 export type ExportPaths = { census: string; snapshot: string }
@@ -242,6 +248,7 @@ export async function pushExportedState(): Promise<{ key: string; bytes: number 
     [STORE_KEYS.tombstones, TOMBSTONE_PATH],
     [STORE_KEYS.calibrationBatch, CALIBRATION_ARTIFACT_PATH],
     [STORE_KEYS.calibrationPackets, CALIBRATION_PACKETS_PATH],
+    [STORE_KEYS.goldenInputs, GOLDEN_INPUTS_PATH],
   ]
   const written: { key: string; bytes: number }[] = []
   for (const [key, path] of records) {

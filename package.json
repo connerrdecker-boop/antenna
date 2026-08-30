@@ -15,6 +15,7 @@
     "pipeline": "tsx scripts/pipeline.ts",
     "calibrate": "tsx scripts/calibrate.ts",
     "ratify:sheet": "tsx scripts/ratify-sheet.ts",
+    "verdicts": "tsx scripts/enter-verdicts.ts",
     "harvest": "tsx scripts/harvest.ts",
     "smoke:actor": "tsx scripts/smoke-actor.ts",
     "state:export": "tsx scripts/state-export.ts",
@@ -26,6 +27,7 @@
     "test:fetchlink": "tsx scripts/test-fetchlink.ts",
     "check": "tsx scripts/check.ts && npm run --silent check:canon && npm run --silent check:golden",
     "check:golden": "tsx scripts/check-golden.ts",
+    "golden:build": "tsx scripts/build-golden.ts",
     "backup": "tsx scripts/backup.ts",
     "db:generate": "drizzle-kit generate",
     "check:canon": "tsx scripts/check-canon.ts"

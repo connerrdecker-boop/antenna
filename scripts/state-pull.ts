@@ -24,7 +24,7 @@ import { loadEnvLocal, PipelineHalt } from '@/lib/env'
 import { getRecord, listKeys, resolveStore, STATE_STORE_NAME, STORE_KEYS } from '@/lib/remoteStore'
 import {
   CALIBRATION_ARTIFACT_PATH as ARTIFACT_PATH,
-  CALIBRATION_PACKETS_PATH as PACKETS_PATH,
+  CALIBRATION_PACKETS_PATH as PACKETS_PATH, GOLDEN_INPUTS_PATH,
   SNAPSHOT_PATH,
 } from '@/lib/stateExport'
 import { TOMBSTONE_PATH } from '@/lib/tombstones'
@@ -41,6 +41,7 @@ const KEY_TO_PATH: Record<string, string> = {
   [STORE_KEYS.tombstones]: TOMBSTONE_PATH,
   [STORE_KEYS.calibrationBatch]: ARTIFACT_PATH,
   [STORE_KEYS.calibrationPackets]: PACKETS_PATH,
+  [STORE_KEYS.goldenInputs]: GOLDEN_INPUTS_PATH,
 }
 
 async function main() {

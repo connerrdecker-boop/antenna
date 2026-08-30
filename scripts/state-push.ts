@@ -23,7 +23,7 @@ import { loadEnvLocal, PipelineHalt } from '@/lib/env'
 import { resolveStore, putRecord, STATE_STORE_NAME, STORE_KEYS } from '@/lib/remoteStore'
 import {
   CALIBRATION_ARTIFACT_PATH as ARTIFACT_PATH,
-  CALIBRATION_PACKETS_PATH as PACKETS_PATH,
+  CALIBRATION_PACKETS_PATH as PACKETS_PATH, GOLDEN_INPUTS_PATH,
   DEFAULT_EXPORT_PATHS, regressionReport, SNAPSHOT_PATH, writeStateExport,
 } from '@/lib/stateExport'
 import { TOMBSTONE_PATH } from '@/lib/tombstones'
@@ -53,6 +53,7 @@ export async function pushState(opts: { dryRun?: boolean; quiet?: boolean } = {}
   add(STORE_KEYS.tombstones, readJson(TOMBSTONE_PATH))
   add(STORE_KEYS.calibrationBatch, readJson(ARTIFACT_PATH))
   add(STORE_KEYS.calibrationPackets, readJson(PACKETS_PATH))
+  add(STORE_KEYS.goldenInputs, readJson(GOLDEN_INPUTS_PATH))
 
   if (opts.dryRun) {
     log(`\nDRY RUN — would push ${payloads.length} record(s) to "${STATE_STORE_NAME}":`)
