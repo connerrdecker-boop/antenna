@@ -253,6 +253,7 @@ type HashtagPost = {
   ownerFullName?: string
   ownerId?: string
   caption?: string
+  hashtags?: string[]
   likesCount?: number
   commentsCount?: number
   url?: string
@@ -323,6 +324,14 @@ export function apifyActorProvider(opts: ApifyActorOpts = {}): ActorProvider {
       for (const raw of result.items as HashtagPost[]) {
         const username = typeof raw.ownerUsername === 'string' ? raw.ownerUsername.trim().toLowerCase() : ''
         if (!username || byOwner.has(username)) continue
+        // PER-TAG ATTRIBUTION. The actor is called once with every tag, so
+        // stamping the whole list would make per-tag yield unrecoverable —
+        // and per-tag yield is exactly what the next wave's tag list gets
+        // designed from. Each post carries its OWN hashtags, so the searched
+        // tags it actually matched are recoverable; the full list is the
+        // honest fallback when a post carries none.
+        const own = new Set((raw.hashtags ?? []).map((h) => `#${String(h).replace(/^#/, '').toLowerCase()}`))
+        const matched = tags.filter((t) => own.has(t.toLowerCase()))
         byOwner.set(username, {
           username,
           fullName: raw.ownerFullName ?? null,
@@ -334,7 +343,7 @@ export function apifyActorProvider(opts: ApifyActorOpts = {}): ActorProvider {
           postsLast30d: null,
           engagementProxy: null,
           externalUrl: null,
-          via: `hashtag ${tags.join(' ')}`,
+          via: `hashtag ${(matched.length ? matched : tags).join(' ')}`,
         })
       }
       return [...byOwner.values()]
