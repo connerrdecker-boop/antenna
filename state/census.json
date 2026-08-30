@@ -1,19 +1,19 @@
 {
   "schema": 1,
-  "written_at": "2026-08-28T17:02:00.669Z",
+  "written_at": "2026-08-30T00:39:57.628Z",
   "tables": {
     "candidates": 43,
     "ratifications": 5,
-    "observations": 32,
+    "observations": 63,
     "outreach_log": 7,
     "status_history": 57,
-    "spend": 17,
+    "spend": 84,
     "harvest_runs": 27
   },
   "spend_floor": {
     "serp": 0,
-    "actors": 0,
-    "llm": 0,
-    "total": 0
+    "actors": 0.117,
+    "llm": 0.593405,
+    "total": 0.710405
   }
 }
