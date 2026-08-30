@@ -48,3 +48,8 @@ antenna.db*
 # delete-on-request" and deleting from git history is not trivial. It leaves
 # the container by being handed to the operator.
 /state/snapshot.json
+
+# Calibration run artifact (npm run calibrate). Person-linked — handles, names
+# and per-candidate reasoning — so it follows snapshot.json out of git history
+# for the same Law 5 reason: delete-on-request must stay trivial.
+/state/calibration/
