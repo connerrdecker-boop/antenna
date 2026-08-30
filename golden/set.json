@@ -1,8 +1,8 @@
 {
   "schema": 1,
-  "built_at": "2026-08-30T14:47:54.243Z",
+  "built_at": "2026-08-30T15:22:13.425Z",
   "source": "A2 calibration batch, 32 profiles, frozen at the operator ratify pass",
-  "prompt_version": "score_v2",
+  "prompt_version": "score_v3",
   "agreement_threshold": 0.9,
   "note": "Person-free by construction: fingerprints and labels only. The frozen scorer inputs live in golden/inputs.json, which is gitignored (Law 5) and carried by the remote state store. Fingerprints are pseudonymous, not anonymous — see lib/tombstones.ts.",
   "entries": [
@@ -11,189 +11,189 @@
       "decision": "bank",
       "expected": null,
       "scored_tier": "B",
-      "scored_score": 68
+      "scored_score": 61
     },
     {
       "fp": "381e72005afd125a",
       "decision": "approve",
       "expected": "A",
-      "scored_tier": "B",
-      "scored_score": 63
+      "scored_tier": "A",
+      "scored_score": 85
     },
     {
       "fp": "0525d12652396eee",
       "decision": "approve",
       "expected": "A",
-      "scored_tier": "B",
-      "scored_score": 62
+      "scored_tier": "A",
+      "scored_score": 84
     },
     {
       "fp": "a8ef07a60b184977",
       "decision": "bank",
       "expected": null,
       "scored_tier": "B",
-      "scored_score": 62
+      "scored_score": 69
     },
     {
       "fp": "57d6f5c4d6c88c24",
       "decision": "approve",
       "expected": "A",
-      "scored_tier": "B",
-      "scored_score": 61
+      "scored_tier": "A",
+      "scored_score": 86
     },
     {
       "fp": "0f0ef330f1e2ea5f",
       "decision": "approve",
       "expected": "A",
-      "scored_tier": "B",
-      "scored_score": 61
+      "scored_tier": "A",
+      "scored_score": 85
     },
     {
       "fp": "14ac036a96d1c4eb",
       "decision": "bank",
       "expected": null,
       "scored_tier": "B",
-      "scored_score": 58
+      "scored_score": 71
     },
     {
       "fp": "95bd94bdce0aff90",
       "decision": "bank",
       "expected": null,
-      "scored_tier": "C",
-      "scored_score": 44
+      "scored_tier": "B",
+      "scored_score": 65
     },
     {
       "fp": "cd66dfe38cd2b8f1",
       "decision": "reject",
       "expected": "not-A",
-      "scored_tier": "X",
-      "scored_score": 39
+      "scored_tier": "C",
+      "scored_score": 46
     },
     {
       "fp": "1b7a7fcfd7a7d5f2",
       "decision": "approve",
       "expected": "A",
-      "scored_tier": "X",
-      "scored_score": 39
+      "scored_tier": "B",
+      "scored_score": 69
     },
     {
       "fp": "bbd7ad5548446695",
       "decision": "reject",
       "expected": "not-A",
       "scored_tier": "X",
-      "scored_score": 39
+      "scored_score": 27
     },
     {
       "fp": "6fb1afb88d885a3e",
       "decision": "reject",
       "expected": "not-A",
       "scored_tier": "X",
-      "scored_score": 35
+      "scored_score": 27
     },
     {
       "fp": "45f9403c025c6562",
       "decision": "reject",
       "expected": "not-A",
-      "scored_tier": "X",
-      "scored_score": 34
+      "scored_tier": "C",
+      "scored_score": 50
     },
     {
       "fp": "4405d9ba7f60b459",
       "decision": "bank",
       "expected": null,
       "scored_tier": "X",
-      "scored_score": 32
+      "scored_score": 38
     },
     {
       "fp": "a7e00ea4bd76831d",
       "decision": "reject",
       "expected": "not-A",
       "scored_tier": "X",
-      "scored_score": 29
+      "scored_score": 31
     },
     {
       "fp": "6da8e5d656d86811",
       "decision": "reject",
       "expected": "not-A",
       "scored_tier": "X",
-      "scored_score": 27
+      "scored_score": 39
     },
     {
       "fp": "46ec50226dea6e36",
       "decision": "reject",
       "expected": "not-A",
       "scored_tier": "X",
-      "scored_score": 27
+      "scored_score": 0
     },
     {
       "fp": "e4d8181bb3f5fd6d",
       "decision": "reject",
       "expected": "not-A",
       "scored_tier": "X",
-      "scored_score": 26
+      "scored_score": 24
     },
     {
       "fp": "a01a0e7bc161dbe9",
       "decision": "reject",
       "expected": "not-A",
       "scored_tier": "X",
-      "scored_score": 25
+      "scored_score": 23
     },
     {
       "fp": "33c0cfc87a9b8cac",
       "decision": "reject",
       "expected": "not-A",
       "scored_tier": "X",
-      "scored_score": 25
+      "scored_score": 21
     },
     {
       "fp": "ed186452626e1f6d",
       "decision": "bank",
       "expected": null,
       "scored_tier": "X",
-      "scored_score": 24
+      "scored_score": 39
     },
     {
       "fp": "c75ad7a67c439956",
       "decision": "reject",
       "expected": "not-A",
       "scored_tier": "X",
-      "scored_score": 24
+      "scored_score": 38
     },
     {
       "fp": "85fb3ee0f44b2a4c",
       "decision": "reject",
       "expected": "not-A",
       "scored_tier": "X",
-      "scored_score": 24
+      "scored_score": 39
     },
     {
       "fp": "7fa9f6786c249167",
       "decision": "reject",
       "expected": "not-A",
       "scored_tier": "X",
-      "scored_score": 24
+      "scored_score": 39
     },
     {
       "fp": "3ec28ac5b28aa96a",
       "decision": "reject",
       "expected": "not-A",
       "scored_tier": "X",
-      "scored_score": 24
+      "scored_score": 38
     },
     {
       "fp": "3a4357a0bbb8674b",
       "decision": "reject",
       "expected": "not-A",
       "scored_tier": "X",
-      "scored_score": 24
+      "scored_score": 39
     },
     {
       "fp": "65010d41702a8d57",
       "decision": "reject",
       "expected": "not-A",
       "scored_tier": "X",
-      "scored_score": 22
+      "scored_score": 37
     },
     {
       "fp": "737f7ccbfae2db2f",
@@ -207,28 +207,28 @@
       "decision": "reject",
       "expected": "not-A",
       "scored_tier": "X",
-      "scored_score": 22
+      "scored_score": 21
     },
     {
       "fp": "9c3c76d30d2d5ac9",
       "decision": "reject",
       "expected": "not-A",
       "scored_tier": "X",
-      "scored_score": 22
+      "scored_score": 39
     },
     {
       "fp": "c1d7168a0cdc0e70",
       "decision": "reject",
       "expected": "not-A",
       "scored_tier": "X",
-      "scored_score": 20
+      "scored_score": 30
     },
     {
       "fp": "344fa3d7bfbcf2c8",
       "decision": "reject",
       "expected": "not-A",
       "scored_tier": "X",
-      "scored_score": 20
+      "scored_score": 33
     }
   ]
 }

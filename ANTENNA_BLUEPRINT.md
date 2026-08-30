@@ -18,9 +18,34 @@
 | Campaign | NYC + South Florida first · goal 20–25 signed LOIs, ≥8–10 at tier T2/T3 · **Ashok's gate stays 10** |
 | Budget | Hard cap **$250** total external spend, enforced in code |
 | Timeline | A1–A2 evenings post-Friday · A3 weekend · A4 (hour of truth) before wave one · wave one launches after Christopher confirms |
-| Build state | **A1 shipped** · **A2 build half shipped + ratified**; **calibration batch SCORED + ratified** (32 profiles: A:0 B:7 C:1 X:24 — golden set builds from the operator's ratify pass) · **A3 build half shipped + ratified** · **durability + erasure shipped + ratified** (Part X.2) · **remote state store shipped + ratified** (Part X.3 — primary durability layer) · A4: /metrics pulled forward, export + measured run remain |
+| Build state | **A1 shipped** · **A2 build half shipped + ratified**; **calibration batch SCORED, RATIFIED and RE-SCORED under the national rubric** (32 profiles: A:4 B:5 C:2 X:21 · `check:golden` **GREEN 96.2%**) · **the founding cohort is NATIONAL** — `score_v2`/`prescore_v2` shipped + ratified (Parts 6.7/6.8) · **A3 build half shipped + ratified** · **durability + erasure shipped + ratified** (Part X.2) · **remote state store shipped + ratified** (Part X.3 — primary durability layer, purge proven on the wire) · A4: /metrics pulled forward, export + measured run remain |
 
 ## Phase log
+
+**A2-national — the founding cohort goes NATIONAL; score_v2 / prescore_v2 · 2026-08-30 · shipped and RATIFIED.** Decision **(b)**: the founding cohort is national, and metro becomes a convenience rather than a requirement.
+
+*The evidence that forced it*, all from the calibration batch rather than from argument: **30 of 32 profiles scored `metro` 0/15**, including **every single approval**; with metro at floor and `size_band` at the quarter-point floor, the reachable ceiling was **70 against an A-cut of 75**, so **tier A was structurally unreachable** for a nationally-sourced batch before the model read a caption. Fifteen points nobody can earn are not a dimension, they are a ceiling.
+
+*Where the operator's taste actually concentrated* — mean dimension scores across the ten gate-passing profiles, approvals vs banks:
+
+| dimension | approve (n=4) | bank (n=5) | Δ |
+|---|---|---|---|
+| `dm_run` | 22.3 / 25 | 14.8 / 25 | **+7.5** |
+| `online_purity` | 13.0 / 15 | 10.8 / 15 | **+2.2** |
+| `engagement_proxy` | 3.0 / 5 | 2.4 / 5 | +0.6 |
+| `activity` | 8.5 / 10 | 8.0 / 10 | +0.5 |
+| `size_band` | 5.0 / 20 | 8.0 / 20 | **−3.0** |
+| `metro` | 0 / 15 | 0 / 15 | **0** |
+
+Two readings, both load-bearing. `metro` carried **literally zero** discriminating signal. And `size_band` was **inverted** — banks outscored approvals, because @santinoanzevino at 3,619 took full marks under the old 1K–10K band while every approval took the floor. So the freed 10 points went **7 to `dm_run`, 3 to `online_purity`**, matching the observed Δ ratio; splitting them evenly would have over-weighted purity against the evidence.
+
+*The size curve, rebuilt from the verdicts* (`config/limits.ts`, **computed in code** — a seven-band lookup on a known integer has no judgement in it, and the A2 run measured what happens when arithmetic is left to a model): 3K–80K full 20 · 500–3K and 80K–150K partial · tapering to 1 above 600K · **unknown → 10, the neutral midpoint, never 0**. Two breakpoints carry specific verdicts: **80–150K at 8** because @koda.kammer (115,461) was banked "right coach, wrong wave (size)" and would reach A at 12; **>600K at 1** because @hunterstein_wk (718,043) is otherwise a maxed profile and only a punitive top band keeps a "too big to cold DM" verdict intact.
+
+*Tier cuts unchanged* (A ≥ 75 · B 55–74 · C 40–54). The ceiling was broken, not the cuts: a national profile can now reach 95.
+
+*Result, re-scoring all 32 under `score_v3`*: **A:4 · B:5 · C:2 · X:21**, and `check:golden` **GREEN at 96.2%** (25/26). All four metro-blind approvals moved **B 61–63 → A 84–86**. The banks landed where the verdicts said: @hunterstein_wk B 61, @koda.kammer B 71, @santinoanzevino B 69. The eligibility gate (6.2a) caught @tommy_lifts10 deterministically at **X 0 with no paid call**.
+
+*The one disagreement is honest.* @cruzbrahh was labelled A and scored **B 69**. The refetch that was supposed to give the gate real evidence gave it something else too: the first actor run had returned **no follower count and no captions**, and the second returned **345,635 followers** and twelve. So the profile the operator approved as an unknown is a 345K account, which the ratified curve scores 3/20. The `unknown → 10` rule stands as policy; it simply no longer applies to the profile it was written for. Persisted through `applyPacket` so the database, the observation panel and the frozen input all agree — a refetch that updated only the packet cache would have left `score.ts` judging on the facts the first run missed.
 
 **A2-calibration — the scoring run, the prescore-bypass deviation, and the remote store · 2026-08-30 · shipped and RATIFIED.** Commits: `17d6a5c` calibration run · `+ carve-out, re-ratification, remote store, canon`. Branch consolidation: every branch merged to `main` and deleted; standing policy is now that **every commit reaches `main` before session end**.
 
@@ -395,6 +420,100 @@ During A2, hand-label **30 frozen profiles** (≈10 clear-A, 10 B/C, 10 X) with 
 **Two modes, because this is chained into `npm run check`.** A live re-score is 32 frontier calls — real money, and it needs a key — so the default compares the **stored** scores to the labels with no model calls, and `--rescore` does the canon re-score through the current prompt and few-shot block. Only `--rescore` can see a prompt edit, so that is the one to run after changing one.
 
 `bank` and `flag` are frozen but **excluded from the metric**: a banked profile is a real coach held for a later wave, and scoring that as a failure would train the rubric to reject good coaches for being early.
+
+## 6.7 Stage 1 — pre-score prompt v2 (`prompts/prescore_v2.md`, verbatim)
+
+Ratified 2026-08-30 with the NATIONAL founding-cohort decision. The hardcoded 500–20,000 band and the `> 60,000` auto-kill are gone: they were killing the target. Size below the ceiling is now a matter of degree for the full scorer, never a kill here.
+
+```
+You are a cheap first-pass filter for Instar, a business platform for online
+fitness coaches. Decide whether a profile is worth a full, expensive scoring
+pass. The founding cohort is NATIONAL — location is never a reason to kill.
+
+Kill the obvious noise: gyms and studios rather than individuals, supplement
+and apparel brands, meme and repost pages, talent-agency-managed lifestyle
+influencers with no coaching offer, and gym-floor-only trainers with no online
+business.
+
+SIZE IS NOT A KILL. Anyone from 500 to about 1,000,000 followers is worth a
+full look. Below 500 there is no business yet; above ~1,000,000 the account is
+a media property rather than a coach taking DMs. Between those, follower count
+is a matter of degree for the full scorer to weigh, NEVER a reason to kill
+here. A 40,000-follower coach selling 1:1 in the bio is exactly the target.
+
+Given: handle, bio, follower_count, link_domain.
+
+Return ONLY JSON: {"pre_score":0-100,"kill_reasons":[str]}
+
+Score high when the bio names a coaching offer, an application, a DM keyword,
+a niche and who it is for, or the link points at a coaching funnel
+(stan.store, a personal coaching domain, an application form).
+Score low for brand accounts, agency contacts with no offer, dormant or
+abandoned accounts, and profiles with no coaching signal anywhere.
+kill_reasons carries the specific disqualifying signals you actually saw —
+never "too big" or "too small" for anything inside the range above.
+When uncertain, score 45-55 (let the full scorer decide). No prose. JSON only.
+```
+
+Model `claude-haiku-4-5`, temp 0. Cost ≈ negligible per profile.
+
+## 6.8 Stage 2 — full-score prompt v2 (`prompts/score_v2.md`, verbatim)
+
+Ratified 2026-08-30. `metro` 15 → 5 and reframed as a bonus; the freed 10 points split 7/3 to `dm_run` and `online_purity` on the calibration evidence; `size_band` rebuilt from the operator's verdicts and **computed in code** from `config/limits.ts` rather than asked of the model. Stored as `score_prompt_version = score_v3` — the version counts rubric revisions and `score_v2` was already spent on the v1-file-plus-metro-injection rendering, so file and version are deliberately off by one.
+
+```
+You score prospects for Instar, a business platform for online fitness coaches.
+IDEAL: individual online coach actively SELLING coaching (offers/prices/
+application visible), business visibly run through DMs (comment-word CTAs,
+"DM me", link-funnels ending in DMs), posted within 30 days. The founding
+cohort is NATIONAL: location is a convenience, never a requirement.
+
+INPUT: handle, bio, follower_count, last ~6 captions, link page text, tags.
+
+RETURN ONLY JSON:
+{"gates":{"sells_online_coaching":{"pass":bool,"evidence":str},
+          "is_individual_coach":{"pass":bool,"evidence":str},
+          "alive_30d":{"pass":bool,"evidence":str}},
+ "dims":{"dm_run":{"pts":0-32,"evidence":str},
+         "size_band":{"pts":0-20,"evidence":str},
+         "metro":{"metro":"nyc|sofla|other|unknown","confidence":0-1,
+                  "pts":0-5,"evidence":str},
+         "online_purity":{"pts":0-18,"evidence":str},
+         "activity":{"pts":0-10,"evidence":str},
+         "engagement_proxy":{"pts":0-5,"evidence":str}},
+ "penalties":{"incumbent_tooling":{"pts":0 to -10,"evidence":str}},
+ "stack_signals":string[], 
+ "extracted":{"name":str,"offers":[{"type":str,"price":str|null}],
+              "lead_magnet":str|null},
+ "hook_draft":str,
+ "score":0-100,"tier":"A|B|C|X"}
+
+RULES: Any failed gate => tier X, score as computed but capped 39. Otherwise
+score = sum(dims) + 10 base + penalties. Tiers: A >= 75, B 55-74, C 40-54.
+DM_RUN is the heaviest dimension (0-32) and the one that most separates a real
+prospect from a lookalike: comment-word CTAs, "DM me X", application funnels,
+a stated 1:1 offer. Score it on evidence you can quote, not on vibes.
+Size band: 3K-80K full points; 500-3K or 80K-150K partial; larger tapers to
+almost nothing. It is COMPUTED from follower_count, so report your reading and
+expect it to be replaced by the arithmetic.
+Metro: a BONUS ONLY (0-5) — same-metro adds reach-out ease, nothing more. It is
+NEVER a gate and NEVER a reason to downgrade. {NYC metro} or {South Florida}
+= 5; anywhere else, including unknown, = 0 and that is a normal, healthy score
+for an ideal national prospect.
+Evidence strings must quote or closely paraphrase the actual source text.
+HOOK_DRAFT: one sentence, a note TO THE OPERATOR (not message copy), naming ONE
+concrete observable — a specific post, offer, program name, or funnel detail —
+that a first message could reference. No flattery, no AI mention.
+Examples of good hooks:
+- "His Stan page leads with a $1,200 yearly-upfront option — same model as ours."
+- "Runs a 'comment LEAN' guide funnel on 3 of her last 5 posts."
+- "Pinned a 16-week client transformation from March; still his top post."
+{FEW_SHOT_BLOCK}
+No prose. JSON only.
+```
+
+Model `claude-sonnet-4-6`, temp 0. Tier cuts unchanged (A ≥ 75 · B 55–74 · C 40–54): the national CEILING was broken under v1, not the cuts.
+
 
 ---
 

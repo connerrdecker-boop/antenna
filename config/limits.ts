@@ -33,8 +33,67 @@ export const HARVEST_COST = {
  */
 export const ACTOR_SMOKE_TEST_CAP = 2
 
-/** Tier cuts (Part 6.2 RULES). */
+/** Tier cuts (Part 6.2 RULES). Unchanged at the national ratification: the
+ *  CEILING was broken under v1, not the cuts. A national profile could reach
+ *  at most 70 against an A-cut of 75; under score_v3 it can reach 95. */
 export const TIER_CUTS = { A: 75, B: 55, C: 40 } as const
+
+/**
+ * THE SIZE BAND (ratified 2026-08-30, the NATIONAL founding-cohort decision).
+ *
+ * Rebuilt from the operator's own calibration verdicts rather than from the
+ * original 1K–10K guess. The evidence: all four approvals sat between 22,077
+ * and 71,610 followers and every one of them scored the v1 quarter-point
+ * floor, while @santinoanzevino at 3,619 — squarely inside the old ideal band —
+ * was BANKED for being on hiatus. Size, as v1 measured it, was anti-correlated
+ * with the operator's taste.
+ *
+ * `max` is inclusive. Two breakpoints carry specific verdicts:
+ *
+ *   80,001–150,000 at 8 — @koda.kammer (115,461) was banked "right coach,
+ *     wrong wave (size)". At 12 points they project to 77 and land tier A,
+ *     which would contradict that verdict outright; at 8 they land 73 (B).
+ *
+ *   >600,000 at 1 — @hunterstein_wk (718,043), banked "too big to cold DM",
+ *     is otherwise a maxed profile (dm_run 25/25, purity 15/15, activity
+ *     10/10). Only a genuinely punitive top band keeps them out of A.
+ */
+export const SIZE_BANDS: readonly { max: number; pts: number; label: string }[] = [
+  { max: 499, pts: 0, label: 'below a business' },
+  { max: 2_999, pts: 12, label: 'emerging' },
+  { max: 80_000, pts: 20, label: 'the founding-cohort band' },
+  { max: 150_000, pts: 8, label: 'above the band — wrong wave' },
+  { max: 300_000, pts: 6, label: 'well above the band' },
+  { max: 600_000, pts: 3, label: 'large account' },
+  { max: Number.POSITIVE_INFINITY, pts: 1, label: 'too big to cold DM' },
+] as const
+
+/**
+ * Points for an UNKNOWN follower count — the neutral midpoint, never 0.
+ *
+ * @cruzbrahh has a null follower count and the operator approved them. Part V
+ * already holds that "a missing follower count is UNKNOWN, and coercing it to
+ * 0 would feed size_band a confident falsehood"; scoring absent data as if it
+ * were a disqualifying fact is the same error one layer up.
+ */
+export const SIZE_BAND_UNKNOWN_PTS = 10
+
+/** The ratified curve, as a function. Deterministic — never asked of a model. */
+export function sizeBandPoints(followerCount: number | null | undefined): number {
+  if (followerCount === null || followerCount === undefined || !Number.isFinite(followerCount)) {
+    return SIZE_BAND_UNKNOWN_PTS
+  }
+  return SIZE_BANDS.find((b) => followerCount <= b.max)!.pts
+}
+
+/** The band's human label, for the evidence panel. */
+export function sizeBandLabel(followerCount: number | null | undefined): string {
+  if (followerCount === null || followerCount === undefined || !Number.isFinite(followerCount)) {
+    return 'follower count unknown — neutral credit, not a penalty'
+  }
+  const band = SIZE_BANDS.find((b) => followerCount <= b.max)!
+  return `${followerCount.toLocaleString()} followers — ${band.label}`
+}
 
 /** DM pacing guard (Part 8.3). Soft warning, then hard warning. */
 export const PACING = { soft: 25, hard: 40 } as const

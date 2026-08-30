@@ -12,6 +12,7 @@ import {
 } from '@/lib/census'
 import { killedEnrichmentBreaches, runDbAssertions, type KillEnrichRow } from '@/lib/assertions'
 import { minorIndication } from '@/lib/eligibility'
+import { sizeBandPoints } from '@/config/limits'
 import {
   assertNamedStore, personLinkedKeysFrom, purgePersonLinked,
   PERSON_LINKED_KEYS, STATE_STORE_NAME, STORE_KEYS,
@@ -509,19 +510,27 @@ section('10. prompts are verbatim canon (Part 6.1 / 6.2)')
     if (open < 0 || close < 0) return null
     return canonLines.slice(open + 1, close).join('\n') + '\n'
   }
+  // v1 stays pinned as HISTORY — it is the rubric the A2 calibration batch was
+  // scored by, and the golden set's baseline refers to it. v2 is pinned as the
+  // LIVE rubric. Both must match canon byte-for-byte, or the document and the
+  // thing it claims to specify have quietly diverged.
   for (const [file, header] of [
     ['prompts/prescore_v1.md', '## 6.1'],
     ['prompts/score_v1.md', '## 6.2'],
+    ['prompts/prescore_v2.md', '## 6.7'],
+    ['prompts/score_v2.md', '## 6.8'],
   ] as const) {
     const canon = fenceAfter(header)
     const onDisk = readFileSync(file, 'utf8')
     assert(`${file} matches the ${header} fence byte-for-byte`, canon !== null && onDisk === canon,
       canon === null ? 'fence not found in canon' : `differs at byte ${[...onDisk].findIndex((ch, i) => ch !== canon[i])}`)
   }
-  const scorePrompt = readFileSync('prompts/score_v1.md', 'utf8')
-  assert('score_v1.md still carries the {FEW_SHOT_BLOCK} slot', scorePrompt.includes('{FEW_SHOT_BLOCK}'))
-  assert('score_v1.md still carries both metro placeholder slots',
-    scorePrompt.includes('{NYC metro}') && scorePrompt.includes('{South Florida}'))
+  for (const file of ['prompts/score_v1.md', 'prompts/score_v2.md'] as const) {
+    const scorePrompt = readFileSync(file, 'utf8')
+    assert(`${file} still carries the {FEW_SHOT_BLOCK} slot`, scorePrompt.includes('{FEW_SHOT_BLOCK}'))
+    assert(`${file} still carries both metro placeholder slots`,
+      scorePrompt.includes('{NYC metro}') && scorePrompt.includes('{South Florida}'))
+  }
 
   // score_v2 (ratified A2): the RENDERED prompt — what the model actually
   // reads — must carry every metro term from config and leave no placeholder
@@ -533,7 +542,46 @@ section('10. prompts are verbatim canon (Part 6.1 / 6.2)')
     missingTerms.length === 0, `missing: ${missingTerms.join(', ')}`)
   const unrendered = ['{NYC metro}', '{South Florida}', '{FEW_SHOT_BLOCK}'].filter((s) => rendered.includes(s))
   assert('rendered score prompt has no unrendered placeholder braces', unrendered.length === 0, unrendered.join(', '))
-  assert("score_prompt_version is 'score_v2'", SCORE_PROMPT_VERSION === 'score_v2', SCORE_PROMPT_VERSION)
+  assert("score_prompt_version is 'score_v3' (bumped, never reused)",
+    SCORE_PROMPT_VERSION === 'score_v3', SCORE_PROMPT_VERSION)
+
+  // The ratified size curve (config/limits.ts), proven at every breakpoint the
+  // operator's verdicts actually turn on. A curve that silently drifted would
+  // move tiers under profiles nobody re-read.
+  const CURVE: [number | null, number, string][] = [
+    [null, 10, 'unknown is the neutral midpoint, never 0 (@cruzbrahh)'],
+    [499, 0, 'below a business'],
+    [500, 12, 'the emerging floor'],
+    [2_999, 12, 'top of emerging'],
+    [3_000, 20, 'bottom of the founding-cohort band (@santinoanzevino 3,619)'],
+    [22_077, 20, 'an approval'],
+    [71_610, 20, 'the largest approval'],
+    [80_000, 20, 'top of the band, inclusive'],
+    [80_001, 8, 'one past the band'],
+    [115_461, 8, '@koda.kammer — banked "wrong wave (size)", must NOT reach A'],
+    [177_911, 6, '@heath.lifts'],
+    [718_043, 1, '@hunterstein_wk — banked "too big to cold DM"'],
+  ]
+  const curveWrong = CURVE.filter(([n, want]) => sizeBandPoints(n) !== want)
+  assert('the ratified size curve holds at every breakpoint', curveWrong.length === 0,
+    curveWrong.map(([n, want, why]) => `${n}: got ${sizeBandPoints(n)}, want ${want} (${why})`).join(' | '))
+  assert('the size curve is monotonic non-increasing above the band', (() => {
+    const above = [80_001, 150_000, 150_001, 300_000, 300_001, 600_000, 600_001, 5_000_000]
+    return above.every((n, i) => i === 0 || sizeBandPoints(n) <= sizeBandPoints(above[i - 1]))
+  })())
+
+  // metro is a BONUS now, and the prompt must say so rather than merely scoring
+  // it low — a model reading "metro" as a requirement is the v1 failure.
+  const v2 = readFileSync('prompts/score_v2.md', 'utf8')
+  assert('score_v2 states the cohort is NATIONAL', /NATIONAL/.test(v2))
+  assert('score_v2 frames metro as a bonus that is never a gate',
+    /BONUS ONLY/.test(v2) && /NEVER a gate/.test(v2))
+  assert('score_v2 says an unknown metro is a normal, healthy score',
+    /normal, healthy score/.test(v2))
+  const pre2 = readFileSync('prompts/prescore_v2.md', 'utf8')
+  assert('prescore_v2 states size is not a kill', /SIZE IS NOT A KILL/.test(pre2))
+  assert('prescore_v2 dropped the old 500-20,000 band and the 60,000 auto-kill',
+    !/20,000/.test(pre2) && !/60,000/.test(pre2))
 }
 
 // 11. The few-shot loop (Part 6.5): balanced, bounded, approve/reject only.

@@ -12,7 +12,7 @@
  * candidate's tier, and must not touch the ratifications that calibrate it.
  */
 import { callJson, MODELS } from '@/pipeline/llm'
-import { computeScoreAndTier, renderScorePrompt, validateScore } from '@/pipeline/score'
+import { applySizeBand, computeScoreAndTier, renderScorePrompt, validateScore } from '@/pipeline/score'
 
 type Entry = { fp: string; expected: 'A' | 'not-A' | null }
 type InputEntry = {
@@ -57,7 +57,12 @@ export async function scoreGoldenInput(
     // A profile the scorer cannot produce valid JSON for is not an A. Recording
     // it as null rather than skipping keeps the denominator honest — a set that
     // quietly drops its failures reports a better agreement rate than it earned.
-    out.set(e.fp, res.ok ? computeScoreAndTier(res.value).tier : null)
+    // Same curve as the pipeline. A regression run that skipped it would be
+    // measuring a rubric the pipeline does not use.
+    out.set(
+      e.fp,
+      res.ok ? computeScoreAndTier(applySizeBand(res.value, input.follower_count)).tier : null,
+    )
     process.stdout.write(res.ok ? '.' : '!')
   }
   process.stdout.write('\n')

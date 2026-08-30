@@ -33,6 +33,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { getSqlite } from '@/db/connection'
 import { loadEnvLocal, PipelineHalt } from '@/lib/env'
 import { handleFingerprint } from '@/lib/tombstones'
+import { SCORE_PROMPT_VERSION } from '@/pipeline/score'
 import { CALIBRATION_PACKETS_PATH } from '@/lib/stateExport'
 import { existsSync, readFileSync } from 'node:fs'
 import type { ProfilePacket } from '@/pipeline/types'
@@ -157,7 +158,9 @@ function main(): void {
     schema: GOLDEN_SCHEMA,
     built_at: at,
     source: 'A2 calibration batch, 32 profiles, frozen at the operator ratify pass',
-    prompt_version: 'score_v2',
+    // Read from the scorer, never hand-typed: a golden set that misreports the
+    // rubric it was frozen against is worse than one with no version at all.
+    prompt_version: SCORE_PROMPT_VERSION,
     /** Part 6.6: >=90% agreement on A-vs-not-A, measured over `expected !== null`. */
     agreement_threshold: 0.9,
     note:

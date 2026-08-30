@@ -58,6 +58,7 @@ import { getSqlite } from '@/db/connection'
 import { loadEnvLocal, PipelineHalt } from '@/lib/env'
 import { CALIBRATION_ARTIFACT_PATH, CALIBRATION_PACKETS_PATH } from '@/lib/stateExport'
 import { spentIn } from '@/pipeline/lib/budget'
+import { applyPacket } from '@/pipeline/enrich'
 import { prescoreCandidate } from '@/pipeline/prescore'
 import { scoreCandidate } from '@/pipeline/score'
 import { actorProvider, estimateActorRunUsd } from '@/pipeline/providers/actor'
@@ -184,6 +185,27 @@ function batch(): Row[] {
     .all() as Row[]
 }
 
+/**
+ * THE ALREADY-CALIBRATED BATCH, for a re-score under a new rubric.
+ *
+ * Selected by the `score_context=calibration` marker rather than by status or
+ * tier, because both have moved on: the ratify pass left these 32 spread
+ * across rejected, banked, qualified and sourced, and every one of them
+ * already carries a tier. Re-scoring touches score/tier/evidence ONLY —
+ * scoreCandidate writes no status — so the operator's verdicts and the funnel
+ * they produced are untouched by a rubric change.
+ */
+function calibratedBatch(): Row[] {
+  return getSqlite()
+    .prepare(
+      `SELECT id, handle, name, bio, follower_count, link_domain, link_contents, pre_score
+         FROM candidates
+        WHERE notes LIKE '%score_context=' || 'calibration' || '%'
+        ORDER BY handle`,
+    )
+    .all() as Row[]
+}
+
 /** The pre-score writes kill reasons into `evidence`; read them back before the full scorer overwrites it. */
 function killReasonsOf(id: number): string[] {
   const row = getSqlite().prepare('SELECT evidence FROM candidates WHERE id = ?').get(id) as
@@ -243,7 +265,17 @@ async function main() {
   const providerName = arg('provider') ?? 'fixture'
   const provider: ProfileProvider = providerName === 'actor' ? actorProvider() : fixtureProvider()
 
-  const rows = batch()
+  // A re-score works the already-calibrated set; a first run works the
+  // unscored one.
+  const rescoring = flag('rescore') || phase === 'refetch'
+  const all = rescoring ? calibratedBatch() : batch()
+  // --handles= narrows any phase to a subset: a single refetch, or a retry of
+  // the one profile whose JSON came back malformed twice.
+  const only = arg('handles')?.split(',').map((h) => h.trim().toLowerCase()).filter(Boolean)
+  const rows = only?.length ? all.filter((r) => only.includes(r.handle.toLowerCase())) : all
+  if (only?.length && !rows.length) {
+    throw new PipelineHalt(`--handles matched nothing in the batch: ${only.join(', ')}`)
+  }
   const artifact = loadArtifact()
   artifact.provider = providerName
 
@@ -290,6 +322,12 @@ async function main() {
 
   // ── refetch: recover the packets the rebuilt container lost ─────────────
   if (phase === 'refetch') {
+    // --handles= refetches a subset. @cruzbrahh's first packet came back with
+    // zero captions, so alive_30d — a GATE — had no evidence to read and the
+    // profile failed on absent data rather than on the account. The operator
+    // verified by eye that it is active, so the frozen input should reflect the
+    // account rather than the actor's earlier miss. Merged into the existing
+    // cache, never replacing it: a one-handle run must not discard 31 packets.
     const handles = rows.map((r) => r.handle)
     const spentBefore = spentIn('actors')
     console.log(
@@ -305,8 +343,32 @@ async function main() {
     const packets = await actor.fetchProfiles!(handles)
     const charged = spentIn('actors') - spentBefore
 
+    // Persist through the ordinary enrichment write. A refetch that updated
+    // only the packet cache would leave the DATABASE stale, and score.ts reads
+    // follower_count from the database — so the scorer would keep judging on
+    // the facts the earlier actor run missed. @cruzbrahh is exactly that case:
+    // the first run returned no follower count and no captions, the refetch
+    // returned 345,635 and twelve. Scoring that as "unknown, neutral credit"
+    // would be crediting the profile for data we now have.
+    for (const p of packets) {
+      const row = rows.find((r) => r.handle.toLowerCase() === p.handle.toLowerCase())
+      if (!row) continue
+      const before = row.follower_count
+      applyPacket(row.id, { id: row.id, handle: row.handle, bio: row.bio, pre_score: row.pre_score, name: row.name, link_domain: row.link_domain }, p, 'calibrate:refetch')
+      if (before !== p.followerCount) {
+        console.log(`  @${p.handle}: follower_count ${before ?? 'unknown'} -> ${p.followerCount ?? 'unknown'} (persisted, observation written)`)
+      }
+    }
+
     mkdirSync('state/calibration', { recursive: true })
-    writeFileSync(PACKETS_PATH, JSON.stringify(packets, null, 2) + '\n')
+    const merged = new Map<string, ProfilePacket>()
+    if (existsSync(PACKETS_PATH)) {
+      for (const p of JSON.parse(readFileSync(PACKETS_PATH, 'utf8')) as ProfilePacket[]) {
+        merged.set(p.handle.toLowerCase(), p)
+      }
+    }
+    for (const p of packets) merged.set(p.handle.toLowerCase(), p)
+    writeFileSync(PACKETS_PATH, JSON.stringify([...merged.values()], null, 2) + '\n')
 
     const missed = handles.filter((h) => !packets.some((p) => p.handle.toLowerCase() === h.toLowerCase()))
     const withCaptions = packets.filter((p) => (p.captions?.length ?? 0) > 0).length
@@ -336,7 +398,10 @@ async function main() {
     )
     for (const c of rows) {
       const e = upsert(artifact, c.handle)
-      if (e.tier !== null) { console.log(`  @${c.handle} -> ${e.tier} ${e.score} (already scored)`); continue }
+      if (e.tier !== null && !flag('rescore')) {
+        console.log(`  @${c.handle} -> ${e.tier} ${e.score} (already scored)`)
+        continue
+      }
 
       const packet: ProfilePacket | null =
         cached.get(c.handle.toLowerCase()) ?? (await provider.fetchProfile(c.handle))

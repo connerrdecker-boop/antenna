@@ -19,7 +19,7 @@ import type { ProfilePacket, ProfileProvider } from './types'
 
 export type EnrichOutcome = 'enriched' | 'no_data' | 'gated'
 
-type CandidateRow = {
+export type CandidateRow = {
   id: number
   handle: string
   bio: string | null
@@ -61,7 +61,13 @@ export async function enrichCandidate(
   return 'enriched'
 }
 
-function applyPacket(
+/**
+ * Exported so a REFETCH can persist through exactly the same write as a first
+ * enrichment. The alternative — a second UPDATE somewhere else — is how the
+ * Law 9 observation discipline in here quietly stops applying to half the
+ * writes that should obey it.
+ */
+export function applyPacket(
   id: number,
   candidate: CandidateRow,
   packet: ProfilePacket,

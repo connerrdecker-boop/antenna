@@ -10,7 +10,16 @@ import { getSqlite } from '@/db/connection'
 import { callJson, MODELS } from './llm'
 import type { PrescoreResult } from './types'
 
-const PROMPT_PATH = 'prompts/prescore_v1.md'
+/**
+ * prescore_v2 (ratified 2026-08-30, the NATIONAL decision). v1 hardcoded
+ * "roughly 500-20,000 followers" and auto-killed above 60,000 — and that single
+ * rule drove nearly every kill in the A2 calibration batch, including
+ * @santinoanzevino at 3,619 (inside even the OLD band) and every one of the
+ * operator's eventual approvals. v1 is kept on disk as the rubric that batch
+ * was filtered by.
+ */
+const PROMPT_PATH = 'prompts/prescore_v2.md'
+export const PRESCORE_PROMPT_V1_PATH = 'prompts/prescore_v1.md'
 
 function validatePrescore(parsed: unknown): PrescoreResult {
   const p = parsed as Record<string, unknown>

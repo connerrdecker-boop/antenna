@@ -11,7 +11,7 @@
  * its own rubric lines loses to the arithmetic.
  */
 import { readFileSync } from 'node:fs'
-import { TIER_CUTS } from '@/config/limits'
+import { sizeBandLabel, sizeBandPoints, TIER_CUTS } from '@/config/limits'
 import { METRO_TERMS } from '@/config/metros'
 import { getSqlite } from '@/db/connection'
 import type BetterSqlite3 from 'better-sqlite3'
@@ -28,8 +28,17 @@ import type { ScoreResult } from './types'
  * metro slots are filled at render time, so metros remain CONFIG, not prompt
  * text (Part 4.5), and wave three is still just a config block.
  */
-const PROMPT_PATH = 'prompts/score_v1.md'
-export const SCORE_PROMPT_VERSION = 'score_v2'
+const PROMPT_PATH = 'prompts/score_v2.md'
+/**
+ * BUMPED, not reused. The string `score_v2` is already stored on the 32 rows
+ * the v1 rubric scored (it meant "score_v1.md + metro injection"), so reusing
+ * it would make the old and new judgments indistinguishable in every later
+ * query — including the golden set's. The version counts RUBRIC REVISIONS; the
+ * file name counts files, and they are off by one for that reason.
+ */
+export const SCORE_PROMPT_VERSION = 'score_v3'
+/** Kept on disk, unrendered: the rubric the A2 calibration batch was scored by. */
+export const SCORE_PROMPT_V1_PATH = 'prompts/score_v1.md'
 
 export function injectMetroTerms(template: string): string {
   return template
@@ -43,8 +52,21 @@ export function renderScorePrompt(sqlite?: BetterSqlite3.Database): string {
 }
 
 const GATE_KEYS = ['sells_online_coaching', 'is_individual_coach', 'alive_30d'] as const
+/**
+ * score_v3 (ratified 2026-08-30, the NATIONAL decision). Two changes, both
+ * driven by the calibration evidence rather than by taste:
+ *
+ *   metro 15 -> 5, reframed as a bonus. It carried ZERO discriminating signal:
+ *     30 of 32 profiles scored 0/15, including every single approval. Fifteen
+ *     points that nobody could earn are not a dimension, they are a ceiling.
+ *
+ *   the freed 10 points went 7 to dm_run and 3 to online_purity, matching the
+ *     observed gap between approvals and banks on the gate-passing profiles
+ *     (dm_run 22.3 vs 14.8, purity 13.0 vs 10.8 — a ratio of roughly 3:1).
+ *     Splitting them evenly would have over-weighted purity against evidence.
+ */
 const DIM_LIMITS = {
-  dm_run: 25, size_band: 20, metro: 15, online_purity: 15, activity: 10, engagement_proxy: 5,
+  dm_run: 32, size_band: 20, metro: 5, online_purity: 18, activity: 10, engagement_proxy: 5,
 } as const
 
 function num(v: unknown, lo: number, hi: number, name: string): number {
@@ -89,7 +111,39 @@ export function validateScore(parsed: unknown): ScoreResult {
   return p as ScoreResult
 }
 
-/** The RULES paragraph of prompts/score_v1.md, as arithmetic. */
+/**
+ * The ratified size curve, APPLIED IN CODE rather than asked of the model.
+ *
+ * follower_count is a known integer and the curve is a lookup table — there is
+ * no judgement in it, so there is nothing for a model to be good at. And the
+ * A2 run measured what happens when arithmetic is left to the model: it
+ * disagreed with its own rubric on 24 of 32 profiles. A seven-band table
+ * evaluated by hand every time is that failure waiting to recur, on the single
+ * dimension the operator most recently re-cut.
+ *
+ * The model still reports its own reading (the prompt says so, and its evidence
+ * string is worth keeping in view), but the stored points come from
+ * config/limits.ts and the evidence line says which band and why.
+ */
+export function applySizeBand(r: ScoreResult, followerCount: number | null): ScoreResult {
+  const modelSaid = r.dims.size_band.pts
+  const pts = sizeBandPoints(followerCount)
+  return {
+    ...r,
+    dims: {
+      ...r.dims,
+      size_band: {
+        ...r.dims.size_band,
+        pts,
+        evidence:
+          `${sizeBandLabel(followerCount)} (ratified curve)` +
+          (modelSaid !== pts ? ` [model read ${modelSaid}]` : ''),
+      },
+    },
+  }
+}
+
+/** The RULES paragraph of the score prompt, as arithmetic. */
 export function computeScoreAndTier(r: ScoreResult): { score: number; tier: Tier } {
   const dims = Object.values(r.dims).reduce((a, d) => a + d.pts, 0)
   const raw = dims + 10 + r.penalties.incumbent_tooling.pts
@@ -239,7 +293,9 @@ export async function scoreCandidate(
     return { ok: false, error: result.error }
   }
 
-  const r = result.value
+  // The ratified size curve replaces the model's reading BEFORE the arithmetic
+  // and before the evidence panel, so both report the value actually stored.
+  const r = applySizeBand(result.value, candidate.follower_count)
   const { score, tier } = computeScoreAndTier(r)
   if (score !== Math.round(r.score) || tier !== r.tier) {
     console.warn(
