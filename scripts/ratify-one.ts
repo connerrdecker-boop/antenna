@@ -12,7 +12,7 @@
  * app/ratify/actions.ts validates them, so this CLI cannot write a row the
  * keyboard could not have produced.
  */
-import { applyRatifyDecision } from '@/db/repo'
+import { applyRatifyDecision, undoRatifyDecision } from '@/db/repo'
 import { getSqlite } from '@/db/connection'
 import { DECISIONS, REJECT_REASONS, type Decision } from '@/db/enums'
 import { loadEnvLocal, PipelineHalt } from '@/lib/env'
@@ -48,6 +48,21 @@ function main(): void {
     .prepare('SELECT id, status, tier, score FROM candidates WHERE handle = ?')
     .get(handle) as { id: number; status: string; tier: string | null; score: number | null } | undefined
   if (!row) throw new PipelineHalt(`@${handle} is not in this database.`)
+
+  // CHANGING a decision, not making a first one. applyRatifyDecision only
+  // accepts `sourced` rows — the queue door — so a candidate the operator has
+  // already ruled on must come back through the undo edge before the new
+  // verdict can be applied. That is the same two keystrokes /ratify uses (`u`
+  // then the new letter), and it leaves the reversal visible in
+  // status_history rather than silently rewriting the original decision.
+  if (process.argv.includes('--undo-first')) {
+    const prev = sqlite
+      .prepare('SELECT id, decision FROM ratifications WHERE candidate_id = ? ORDER BY at DESC, id DESC LIMIT 1')
+      .get(row.id) as { id: number; decision: string } | undefined
+    if (!prev) throw new PipelineHalt(`@${handle} has no decision to undo.`)
+    undoRatifyDecision(row.id, prev.id)
+    console.log(`\n  undid the previous decision (${prev.decision}) — back to sourced`)
+  }
 
   const applied = applyRatifyDecision(row.id, decision as Decision, reason)
   console.log(

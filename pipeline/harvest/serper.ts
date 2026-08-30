@@ -26,7 +26,10 @@ function isInstagramUrl(url: string): boolean {
 }
 
 function queriesFor(params: AdapterParams): string[] {
-  const all = buildQueries(METRO_TERMS[params.metro])
+  // National library: no metro expansion. params.metro still stamps
+  // provenance and still drives the 4b hashtag sweep, but it no longer
+  // narrows what 4a searches for.
+  const all = buildQueries()
   return params.maxQueries ? all.slice(0, params.maxQueries) : all
 }
 
@@ -34,7 +37,7 @@ async function run(params: AdapterParams): Promise<CandidateSeed[]> {
   const log = params.log ?? console.log
   const provider = params.provider === 'real' ? serperProvider() : fixtureSerpProvider()
   const queries = queriesFor(params)
-  log(`  ${queries.length} queries over ${METRO_TERMS[params.metro].length} ${params.metro} terms (every query logged in harvest_runs.params)`)
+  log(`  ${queries.length} national queries (every query logged in harvest_runs.params)`)
 
   const seeds: CandidateSeed[] = []
   const seenUrls = new Set<string>() // Part 4a: dedupe on result URL before fetching

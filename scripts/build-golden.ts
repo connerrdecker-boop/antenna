@@ -67,10 +67,13 @@ const LABELS: Label[] = [
   { handle: 'koda.kammer', decision: 'bank', expected: null },
   { handle: 'michaeljuliuss', decision: 'bank', expected: null },
   { handle: 'austinalwayslifting', decision: 'reject', expected: 'not-A' },
-  // Flagged during the ratify pass ("activity unverifiable"), then APPROVED
-  // once the operator checked the account by hand. The newest decision is the
-  // one the set freezes.
-  { handle: 'cruzbrahh', decision: 'approve', expected: 'A' },
+  // Three decisions, and the set freezes the newest. FLAGGED during the ratify
+  // pass ("activity unverifiable"), then APPROVED once the operator checked the
+  // account by hand, then BANKED when the refetch revealed 345,635 followers —
+  // a fact neither the flag nor the approval had. The operator's own reason
+  // says it plainly: "approval predates knowing 345K". Banked profiles are
+  // frozen but excluded from the A-vs-not-A metric.
+  { handle: 'cruzbrahh', decision: 'bank', expected: null },
   { handle: 'harryraftus', decision: 'reject', expected: 'not-A' },
   { handle: 'jacknormaan', decision: 'reject', expected: 'not-A' },
   { handle: 'brandonkennedyy', decision: 'reject', expected: 'not-A' },

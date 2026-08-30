@@ -152,7 +152,11 @@ Antenna finds online fitness coaches who match Instar's exact founding-cohort pr
 10. **A candidate becomes DM-able only through human ratification.** The queue is the taste gate, industrialized.
 
 ## 1.4 Success criteria (v1 done means)
-≥350 A/B-tier candidates across both metros within 2 weeks of A4 · ≥60% A-tier survival through the ratify queue at first, **≥90% after tuning** (golden set enforced) · 100% of outreach tracked with timestamps · total external spend ≤ $250 · zero account-safety incidents.
+≥350 A/B-tier candidates **nationally** within 2 weeks of A4 · ≥60% A-tier survival through the ratify queue at first, **≥90% after tuning** (golden set enforced) · 100% of outreach tracked with timestamps · total external spend ≤ $250 · zero account-safety incidents.
+
+**TWO WAVES, NOT ONE WIDER LIBRARY (ratified, A2-national).** The v2 query library projects roughly **126 A/B from wave one** — about a third of the ≥350 target. The tempting fix is to widen the variant axes now, and it is refused: every projection past "raw SERP results" in that estimate rests on two guessed percentages (handle-extraction rate and prescore pass rate) that no real SERP run has ever measured. Widening a library against a model is how a plausible number becomes an expensive one.
+
+So: **wave one runs the ratified 26 as drafted, and wave two's expansion is designed from wave one's measured yield-per-query.** The shortfall is expected and budgeted for, not a miss to be engineered around before the data exists. A bounded pilot (4 queries, 1 hashtag, no enrichment, ~$0.05) replaces the two guesses with measurements before wave one is authorised at all.
 
 ---
 
@@ -263,26 +267,53 @@ Secondary dedupe: normalized `link_url` — two candidates sharing a link page g
 ## 4a. Seller-exhaust search (PRIMARY — most robust, most novel)
 SERP queries against the public footprints of selling. Parse organic results → resolve each hit's page → extract IG handle (`instagram.com/<user>` links, `@handle` text), offers, price patterns (`$NNN`), platform tells.
 
-**The query library** — `config/queries.ts`, **RATIFIED v1 (A3)**: the starter set below stands as-is for the first harvest; tuning comes from A4's measured-run data, not from armchair edits. `npm run check` asserts the config matches this list exactly, so a future edit is a canon-and-config change together. Combinatorial over `config/metros.ts` terms; log every query in `harvest_runs.params`:
+**The query library** — `config/queries.ts`, **RATIFIED v2 (A2-national)**. `npm run check` asserts the config matches this list exactly, so an edit is a canon-and-config change together. Log every query in `harvest_runs.params`.
+
+*Why v1 was replaced.* All eight v1 templates were metro-anchored and expanded over 19 metro terms — 152 queries constraining discovery to two metros, which the national decision makes backwards. Worse, five of the eight led with a link-domain (`site:stan.store`, `site:linktr.ee`, `site:beacons.ai`), and the calibration batch shows domain is **not** a filter: `linktr.ee` ran **3 keep / 6 reject**, and the single `stan.store` profile was **rejected**. The keepers scattered across `linktw.in`, `youtu.be`, a Typeform and two custom domains.
+
+*What replaced it.* The five approvals share one construction almost verbatim — `[DM|Message] me "<KEYWORD>" for [1:1 | 1-on-1 | 1 on 1] coaching` — and three of five open `I help <audience> <outcome>`. That is the `dm_run` dimension, the +7.5 discriminator, visible as literal searchable text. The library now searches for it directly.
+
+**Tier 1 — the approval signature** (3 verbs × 3 phrasings = 9):
 ```
-site:stan.store ("online coach" OR "coaching") {metro_term}
-site:stan.store (fitness OR "personal trainer") {metro_term}
-site:linktr.ee "online fitness coach" {metro_term}
-site:linktr.ee ("apply" OR "coaching application") fitness {metro_term}
-site:beacons.ai fitness coach {metro_term}
-site:instagram.com "online coach" "{metro_term}" ("comment" OR "DM me")
-site:instagram.com fitness coach "{metro_term}" ("spots open" OR "apply")
-"1:1 coaching" fitness "{metro_term}" ("stan.store" OR "linktr.ee")
+site:instagram.com "{verb} me" "for {offer}"
+  verb  = DM | Message | Msg
+  offer = 1:1 coaching | 1 on 1 coaching | 1-on-1 coaching
 ```
-Pagination to ~5 pages/query max. Dedupe on result URL before fetching. A Stan Store hit is **double gold**: proof of selling *and* the exact duct-tape stack the pitch attacks.
+
+**Tier 2 — audience/outcome** (4). The calibration batch was 32/32 male-coded; the women/beginner rows correct that sampling bias deliberately, not for yield:
+```
+site:instagram.com "I help {audience}" ("DM" OR "message") coaching
+  audience = men | women | busy professionals | beginners
+```
+
+**Tier 3 — funnel and selling signals, no metro** (5). The last line is the *only* surviving domain query, demoted from five slots to one and kept purely as bonus discovery:
+```
+site:instagram.com "coaching application" ("apply" OR "DM")
+site:instagram.com "online coach" "spots open"
+site:instagram.com "comment" "for the free" coaching fitness
+site:instagram.com ("online coaching" OR "remote coaching") "clients"
+("1:1 coaching" OR "1 on 1 coaching") fitness ("stan.store" OR "linktr.ee" OR "beacons.ai")
+```
+
+**Tier 4 — metro bonus, demoted** (2 × 4 anchors = 8). Metro is worth 5 bonus points now, so it earns 8 slots rather than 152:
+```
+site:instagram.com "DM me" "1:1 coaching" {metro_anchor}
+site:instagram.com "online coach" {metro_anchor} "apply"
+  metro_anchor = NYC | New York | Miami | South Florida
+```
+
+**26 queries total**, down from 152. Pagination to ~5 pages/query max. Dedupe on result URL before fetching. A Stan Store hit is **double gold**: proof of selling *and* the exact duct-tape stack the pitch attacks.
 
 **Link-page fetch** (`lib/fetchLink.ts`): polite plain fetch, 1 req/sec, 10s timeout. If the body yields <500 chars of text (JS shell), set `link_fetch_status=failed` and continue — the candidate is still scoreable from IG data alone at lower confidence. Optional later fallback: a rendering-service actor. Never block on it. **Law 3 clause (ratified A3)**: the fetcher refuses Instagram hosts by predicate and throws on one — it is the enforcement point of "no direct scraping from infrastructure we own", not a place that merely avoids IG by habit. The <500-char rule diagnoses LIVE fetches only; provider-supplied packet text is stored as given, so a genuinely short link page is never discarded as a JS shell.
 
 ## 4b. Hashtag + location mining (SECONDARY)
 Via commercial data actors, **no login**. Actor names churn: the builder selects currently-maintained "Instagram hashtag scraper" / "Instagram profile scraper"–class actors and **smoke-tests each with a ≤$2 run before any scale run**. Inputs from `config/metros.ts`; outputs mapped to CandidateSeed; expect flakiness and let Score do the filtering.
 
-**Starter hashtag library** — `config/hashtags.ts`, **RATIFIED v1 (A3)** (expand from observed bios; log expansions):
-`#onlinefitnesscoach #onlinecoach #fitnesscoach #nutritioncoach` × metro: `#nycfitnesscoach #nycpersonaltrainer #nycfitness #brooklynfitness #manhattanfitness #miamifitnesscoach #miamipersonaltrainer #miamifitness #fortlauderdalefitness #bocaratonfitness #westpalmbeachfitness #southfloridafitness`
+**Hashtag library** — `config/hashtags.ts`, **RATIFIED v2 (A2-national)**. The canon rule is "expand from observed bios", and the calibration bios are now observed, so the national core grows from four tags to eleven and the metro tags become an opt-in bonus rather than something always appended:
+
+national core: `#onlinefitnesscoach #onlinecoach #fitnesscoach #nutritioncoach #onlinecoaching #1on1coaching #onlinepersonaltrainer #fatlosscoach #transformationcoach #mensfitnesscoach #womensfitnesscoach`
+
+metro bonus (opt-in): `#nycfitnesscoach #nycpersonaltrainer #nycfitness #brooklynfitness #manhattanfitness #miamifitnesscoach #miamipersonaltrainer #miamifitness #fortlauderdalefitness #bocaratonfitness #westpalmbeachfitness #southfloridafitness`
 
 Location-tag feeds for marquee gyms/studios per metro: build the venue list from what harvested bios actually tag (data over guessing). **Ratified A3: `VENUE_TAGS` is EMPTY BY DESIGN** and stays empty until harvest data fills it — populating it before the first run would be exactly the armchair guess this rule exists to prevent. `npm run check` asserts it stays empty until the data exists.
 

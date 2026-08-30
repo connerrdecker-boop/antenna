@@ -33,7 +33,7 @@ import { listCandidates } from '@/db/repo'
 import { PRESCORE_THRESHOLD } from '@/config/limits'
 import { HASHTAG_LIBRARY_STATUS, VENUE_TAGS } from '@/config/hashtags'
 import { METRO_TERMS } from '@/config/metros'
-import { QUERY_LIBRARY_STATUS, QUERY_TEMPLATES } from '@/config/queries'
+import { buildQueries, QUERY_LIBRARY_STATUS } from '@/config/queries'
 import { SEED_ACCOUNTS, SEED_LIST_STATUS, seedGateMessage } from '@/config/seeds'
 import {
   ACTOR_SELECTION_STATUS, ACTOR_RUN_BOUNDS, DEFAULT_PROFILE_ACTOR,
@@ -696,21 +696,61 @@ section('13. harvest — ratified configs, Law 3, extraction, ledger (Part IV / 
   assert('venue tags are empty by design until harvest data exists',
     VENUE_TAGS.nyc.length === 0 && VENUE_TAGS.sofla.length === 0)
 
-  // The canon query templates are transcribed here from Part 4a by hand — the
-  // config drifting from the blueprint's starter set must go red, exactly like
-  // CANON_TRANSITIONS. (Ratified edits update both, deliberately.)
-  const CANON_QUERY_TEMPLATES = [
-    'site:stan.store ("online coach" OR "coaching") {metro_term}',
-    'site:stan.store (fitness OR "personal trainer") {metro_term}',
-    'site:linktr.ee "online fitness coach" {metro_term}',
-    'site:linktr.ee ("apply" OR "coaching application") fitness {metro_term}',
-    'site:beacons.ai fitness coach {metro_term}',
-    'site:instagram.com "online coach" "{metro_term}" ("comment" OR "DM me")',
-    'site:instagram.com fitness coach "{metro_term}" ("spots open" OR "apply")',
-    '"1:1 coaching" fitness "{metro_term}" ("stan.store" OR "linktr.ee")',
+  // The canon query library, transcribed here from Part 4a by hand — the config
+  // drifting from the blueprint must go red, exactly like CANON_TRANSITIONS.
+  // (Ratified edits update both, deliberately.) v2 is GENERATED from axes, so
+  // the transcription is of the 26 queries the axes must produce, not of the
+  // axes themselves: a typo in an axis that still yields 26 plausible strings
+  // is exactly what this has to catch.
+  const CANON_QUERIES = [
+    // Tier 1 — the approval signature (3 verbs x 3 offer phrasings)
+    'site:instagram.com "DM me" "for 1:1 coaching"',
+    'site:instagram.com "DM me" "for 1 on 1 coaching"',
+    'site:instagram.com "DM me" "for 1-on-1 coaching"',
+    'site:instagram.com "Message me" "for 1:1 coaching"',
+    'site:instagram.com "Message me" "for 1 on 1 coaching"',
+    'site:instagram.com "Message me" "for 1-on-1 coaching"',
+    'site:instagram.com "Msg me" "for 1:1 coaching"',
+    'site:instagram.com "Msg me" "for 1 on 1 coaching"',
+    'site:instagram.com "Msg me" "for 1-on-1 coaching"',
+    // Tier 2 — audience/outcome
+    'site:instagram.com "I help men" ("DM" OR "message") coaching',
+    'site:instagram.com "I help women" ("DM" OR "message") coaching',
+    'site:instagram.com "I help busy professionals" ("DM" OR "message") coaching',
+    'site:instagram.com "I help beginners" ("DM" OR "message") coaching',
+    // Tier 3 — funnel and selling signals, no metro
+    'site:instagram.com "coaching application" ("apply" OR "DM")',
+    'site:instagram.com "online coach" "spots open"',
+    'site:instagram.com "comment" "for the free" coaching fitness',
+    'site:instagram.com ("online coaching" OR "remote coaching") "clients"',
+    '("1:1 coaching" OR "1 on 1 coaching") fitness ("stan.store" OR "linktr.ee" OR "beacons.ai")',
+    // Tier 4 — metro bonus, demoted
+    'site:instagram.com "DM me" "1:1 coaching" NYC',
+    'site:instagram.com "DM me" "1:1 coaching" New York',
+    'site:instagram.com "DM me" "1:1 coaching" Miami',
+    'site:instagram.com "DM me" "1:1 coaching" South Florida',
+    'site:instagram.com "online coach" NYC "apply"',
+    'site:instagram.com "online coach" New York "apply"',
+    'site:instagram.com "online coach" Miami "apply"',
+    'site:instagram.com "online coach" South Florida "apply"',
   ]
-  assert('query templates match the Part 4a starter set exactly',
-    JSON.stringify([...QUERY_TEMPLATES]) === JSON.stringify(CANON_QUERY_TEMPLATES))
+  const built = buildQueries()
+  assert('the query library builds exactly the Part 4a v2 set',
+    JSON.stringify(built) === JSON.stringify(CANON_QUERIES),
+    `built ${built.length}, canon ${CANON_QUERIES.length}` +
+    (built.length === CANON_QUERIES.length
+      ? ` — first difference: ${built.find((q, i) => q !== CANON_QUERIES[i]) ?? 'none'}`
+      : ''))
+  assert('the library is 26 queries (down from v1\'s 152)', built.length === 26, String(built.length))
+  assert('no query carries an unexpanded placeholder',
+    !built.some((q) => q.includes('{')), built.filter((q) => q.includes('{')).join(' | '))
+  // The national decision, as a property rather than a comment: at most the
+  // Tier 4 bonus pair may mention a metro.
+  const metroish = built.filter((q) => /NYC|New York|Miami|South Florida/.test(q))
+  assert('at most 8 queries mention a metro (Tier 4 bonus only)', metroish.length === 8,
+    `${metroish.length} do`)
+  assert('the surviving domain query is the only one anchored on a link platform',
+    built.filter((q) => /site:stan\.store|site:linktr\.ee|site:beacons\.ai/.test(q)).length === 0)
 
   // Law 3, as a predicate: the link fetcher must refuse Instagram hosts.
   assert('fetchLink refuses instagram.com (Law 3)', !isFetchableUrl('https://www.instagram.com/someone/'))

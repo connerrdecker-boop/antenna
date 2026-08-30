@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "built_at": "2026-08-30T15:22:13.425Z",
+  "built_at": "2026-08-30T16:12:54.716Z",
   "source": "A2 calibration batch, 32 profiles, frozen at the operator ratify pass",
   "prompt_version": "score_v3",
   "agreement_threshold": 0.9,
@@ -71,8 +71,8 @@
     },
     {
       "fp": "1b7a7fcfd7a7d5f2",
-      "decision": "approve",
-      "expected": "A",
+      "decision": "bank",
+      "expected": null,
       "scored_tier": "B",
       "scored_score": 69
     },
