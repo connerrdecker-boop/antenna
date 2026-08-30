@@ -14,6 +14,7 @@
     "seed": "tsx scripts/seed.ts",
     "pipeline": "tsx scripts/pipeline.ts",
     "calibrate": "tsx scripts/calibrate.ts",
+    "ratify:sheet": "tsx scripts/ratify-sheet.ts",
     "harvest": "tsx scripts/harvest.ts",
     "smoke:actor": "tsx scripts/smoke-actor.ts",
     "state:export": "tsx scripts/state-export.ts",
