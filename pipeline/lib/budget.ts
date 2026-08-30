@@ -26,12 +26,42 @@ export function spentIn(category: SpendCategory, sqlite: BetterSqlite3.Database 
  * The gate. Throws PipelineHalt — never returns false — so no caller can
  * forget to check a boolean.
  */
+/**
+ * A WAVE-SCOPED ceiling, on top of the campaign caps.
+ *
+ * The category caps (Part X) bound the whole campaign; an operator authorising
+ * a single wave wants a bound on THAT WAVE, well inside them. Set as env at
+ * the wave's entry point — a baseline (what was already spent) and a delta cap
+ * — so the halt fires MID-RUN rather than being noticed afterwards. A ceiling
+ * you can only check when the run is over is a report, not a stop.
+ */
+function waveCeiling(category: SpendCategory): { cap: number; baseline: number } | null {
+  const cap = Number(process.env[`ANTENNA_WAVE_${category.toUpperCase()}_CAP`])
+  const baseline = Number(process.env[`ANTENNA_WAVE_${category.toUpperCase()}_BASE`])
+  if (!Number.isFinite(cap) || !Number.isFinite(baseline)) return null
+  return { cap, baseline }
+}
+
 export function ensureBudget(
   category: SpendCategory,
   estimate: number,
   sqlite: BetterSqlite3.Database = getSqlite(),
 ): void {
   const catSpent = spentIn(category, sqlite)
+
+  const wave = waveCeiling(category)
+  if (wave) {
+    const spentThisWave = catSpent - wave.baseline
+    if (spentThisWave + estimate > wave.cap) {
+      throw new PipelineHalt(
+        `WAVE BUDGET HALT: this wave has spent ${usd(spentThisWave)} of its ${usd(wave.cap)} ${category} ` +
+        `bound; this call's estimate of ${usd(estimate)} would exceed it. The pipeline stops here — ` +
+        'nothing was charged. The campaign cap is untouched and unrelated; this is the bound the ' +
+        'operator set for THIS wave, and raising it is their call, not a retry.',
+      )
+    }
+  }
+
   const catCap = CAPS[category]
   if (catSpent + estimate > catCap) {
     throw new PipelineHalt(

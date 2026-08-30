@@ -12,6 +12,7 @@ import {
 } from '@/lib/census'
 import { killedEnrichmentBreaches, runDbAssertions, type KillEnrichRow } from '@/lib/assertions'
 import { minorIndication } from '@/lib/eligibility'
+import { triageKill } from '@/lib/triage'
 import { sizeBandPoints } from '@/config/limits'
 import {
   assertNamedStore, personLinkedKeysFrom, purgePersonLinked,
@@ -34,6 +35,9 @@ import { PRESCORE_THRESHOLD } from '@/config/limits'
 import { HASHTAG_LIBRARY_STATUS, VENUE_TAGS } from '@/config/hashtags'
 import { METRO_TERMS } from '@/config/metros'
 import { buildQueries, QUERY_LIBRARY_STATUS } from '@/config/queries'
+import {
+  HASHTAG_ACTOR_CANDIDATES, HASHTAG_ACTOR_SELECTION_STATUS, hashtagActorSelectionIsDraft,
+} from '@/config/actors'
 import { SEED_ACCOUNTS, SEED_LIST_STATUS, seedGateMessage } from '@/config/seeds'
 import {
   ACTOR_SELECTION_STATUS, ACTOR_RUN_BOUNDS, DEFAULT_PROFILE_ACTOR,
@@ -881,6 +885,27 @@ section('15. actor wiring — selection gate, Law 3, cost bounds, mapping (Part 
     ACTOR_SELECTION_STATUS)
   assert('at least two candidate actors are listed (names churn — Part 4b)',
     PROFILE_ACTOR_CANDIDATES.length >= 2)
+
+  // 15a-bis. The HASHTAG actor selection, ratified 2026-08-30 by the same
+  // sequence. Un-ratifying an actor is a canon decision, so a silent
+  // regression to DRAFT turns this red exactly as it does for the profile one.
+  assert('hashtag actor selection is ratified, not DRAFT',
+    !HASHTAG_ACTOR_SELECTION_STATUS.startsWith('DRAFT') && !hashtagActorSelectionIsDraft(),
+    HASHTAG_ACTOR_SELECTION_STATUS)
+  assert('the hashtag ratification carries its smoke evidence (tag, charge, yield)',
+    /#onlinefitnesscoach/.test(HASHTAG_ACTOR_SELECTION_STATUS) &&
+    /\$0\.0000/.test(HASHTAG_ACTOR_SELECTION_STATUS) &&
+    /14 owners/.test(HASHTAG_ACTOR_SELECTION_STATUS),
+    HASHTAG_ACTOR_SELECTION_STATUS)
+  assert('at least two candidate hashtag actors are listed (names churn — Part 4b)',
+    HASHTAG_ACTOR_CANDIDATES.length >= 2)
+  assert('the hashtag mapper never invents a bio or a follower count',
+    (() => {
+      const src = readFileSync('pipeline/harvest/providers.ts', 'utf8')
+      // A hashtag post carries neither. Reporting null is the honest answer;
+      // synthesising one would put an invented number into the Observatory.
+      return /biography: null/.test(src) && /followersCount: null/.test(src)
+    })())
   assert('the default candidate is the first listed', DEFAULT_PROFILE_ACTOR === PROFILE_ACTOR_CANDIDATES[0])
 
   const savedToken = process.env.APIFY_TOKEN
@@ -1327,6 +1352,68 @@ section('17. erasure + durability machinery (forget · restore · write-through)
 //     the model can trade off against a good DM funnel.
 const stripCommentsGlobal = (s: string) =>
   s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+
+section('20. zero-cost triage — the filter before the first paid call')
+{
+  // 4b is a HANDLE FEED (a hashtag post carries no bio, no followers), so its
+  // rows take the bootstrap-enrich door and would be PAID FOR before the cheap
+  // filter ever read them. Triage runs first, on handle + name only.
+  //
+  // False positives are the expensive direction here even more than in the
+  // eligibility gate: a triaged row is killed before anything looks at it, so
+  // there is no bio, caption or score by which to notice the mistake. The
+  // stand-downs below therefore carry more weight than the catches, and they
+  // are drawn from REAL rows — every calibration approval, plus every handle
+  // the 4b smoke actually returned.
+  const kills: [string, string, string][] = [
+    ['flexfitnessdigital', 'FLEX | Websites for Fitness Coaches & Brands', 'the smoke test vendor'],
+    ['smdesigns.coachtools', 'SM Designs | Fitness Coach Tools', 'separator-stripped handle match'],
+    ['x', 'Funnel Builder for Online Coaches', 'sells to coaches'],
+    ['y', 'Growth Agency | we scale trainers', 'agency'],
+    ['z', 'Coaching Templates & Software', 'product vendor'],
+  ]
+  for (const [h, n, label] of kills) {
+    assert(`triage KILLS — ${label}`, triageKill(h, n) !== null, `${h} / ${n}`)
+  }
+
+  const survivors: [string, string][] = [
+    ['benkumpofficial', 'I Help Men Over 35 Get Lean'],
+    ['chris.cxpa', 'CAPA | Body Transformation Coach — Founder @capcoaching_'],
+    ['ace.dressler', 'I teach men the system to break destructive habits'],
+    ['down_ethan', 'Natural Bodybuilder'],
+    ['cruzbrahh', 'Cruz Brooks | Online Fitness Coach'],
+    ['kdfitnesscoaching', 'Kris Duke | Online Coach'],
+    ['staceyn_fitnessx', 'Stacey Nattrass | PT & FEMALE ONLINE COACH'],
+    ['terrencewellnesscoaching', 'Terrence Wellness'],
+    ['flexfuelcoaching_', 'FlexFuel coaching'],
+    ['bthevibefit', 'Bryan Coney | Life Transformation Coach'],
+    ['shexfit_', 'Kya Johnson | Fitness & Wellness coach'],
+    ['gracebrownfitness', 'Grace Brown'],
+    ['coachvenkatesh_', 'Coach_venkatesh'],
+    ['nocoach', ''],
+  ]
+  const wrongly = survivors.filter(([h, n]) => triageKill(h, n) !== null)
+  assert('triage kills NO real coach (every approval + every smoke handle)',
+    wrongly.length === 0,
+    wrongly.map(([h, n]) => `${h}: ${JSON.stringify(triageKill(h, n))}`).join(' | '))
+  assert('a null name is not a kill', triageKill('someone', null) === null)
+
+  // The mechanism: recorded, reversible, and ahead of every paid step.
+  const pipeSrc = readFileSync('scripts/pipeline.ts', 'utf8')
+  const triageAt = pipeSrc.indexOf('triageKill(')
+  const enrichAt = pipeSrc.indexOf('enrichCandidate(')
+  const scoreAt = pipeSrc.indexOf('scoreCandidate(')
+  assert('triage runs BEFORE enrichment, in source order',
+    triageAt > 0 && enrichAt > 0 && triageAt < enrichAt, `triage@${triageAt} enrich@${enrichAt}`)
+  assert('triage runs BEFORE scoring, in source order',
+    triageAt > 0 && scoreAt > 0 && triageAt < scoreAt)
+  assert('a triaged row records its reason rather than being deleted',
+    /triageNote\(/.test(pipeSrc) && !/DELETE FROM candidates/.test(pipeSrc))
+  assert('the expensive step re-guards on the triage marker at its own query',
+    /notes NOT LIKE/.test(pipeSrc))
+  assert('triage reads only handle and name (no field that costs money to obtain)',
+    /triageKill\(c\.handle, c\.name\)/.test(pipeSrc))
+}
 
 section('19. eligibility gate — minors are ineligible, before any paid call')
 {

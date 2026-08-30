@@ -264,8 +264,14 @@ Secondary dedupe: normalized `link_url` — two candidates sharing a link page g
 
 **Adapter contract** — every adapter exports `{ name, run(params): Promise<CandidateSeed[]> }` with `CandidateSeed = { handle?, ig_url?, link_url?, raw_evidence, source, source_detail }`. The pipeline dedupes, stamps provenance, inserts as `sourced`. A broken adapter is swapped, not mourned.
 
-## 4a. Seller-exhaust search (PRIMARY — most robust, most novel)
+## 4a. Seller-exhaust search (the PRECISION channel)
 SERP queries against the public footprints of selling. Parse organic results → resolve each hit's page → extract IG handle (`instagram.com/<user>` links, `@handle` text), offers, price patterns (`$NNN`), platform tells.
+
+**PRIMARY/SECONDARY was wrong, and the pilot proved it (corrected 2026-08-30).** The canon called 4a "PRIMARY — most robust, most novel" and 4b "SECONDARY" on reasoning, before either had run for real. Measured, the volumes invert: 4a yields roughly **26 handles** for a full 26-query wave against 4b's **~1,700**, about **1.5%** of the total. The labels are now what the data says they are — **4a is the PRECISION channel, 4b the VOLUME channel** — and neither is dropped, because they fail in opposite directions.
+
+*The 4a pilot, 4 queries, $0.02 (`harvest:31`)*: **54 raw results — 13.5 per query, not the 50 the model assumed** — yielding **1.00 handles per query** and **7.4% of raw results usable**. The structural loss: **35 results were instagram.com URLs but only 4 were profiles**; the other **31 were `/p/` and `/reel/` permalinks**. Google indexes Instagram *posts*, and this library searches for *bio* language, so most of what `site:instagram.com` can return cannot yield a handle by construction. That is a ceiling on the channel, not a tuning problem — but what it *does* return matched the approval signature exactly (@brayden.steckler, @catalin.fitness_, @gracebrownfitness, @michellemgrimes), two of them women, which is the Tier 2 sampling correction appearing already inside Tier 1.
+
+*The 4b smoke, 1 tag × 15, $0.0000*: **15 posts → 14 distinct owners**, every mapped field present. Precision is visibly lower — **B2B vendors selling *to* coaches** (`@flexfitnessdigital` "Websites for Fitness Coaches", `@smdesigns.coachtools`) and a chiropractor rode along with the real coaches. That contamination is the characteristic 4b failure, and it is what the zero-cost triage (Part 4.6) exists to stop **before** paid enrichment rather than after.
 
 **The query library** — `config/queries.ts`, **RATIFIED v2 (A2-national)**. `npm run check` asserts the config matches this list exactly, so an edit is a canon-and-config change together. Log every query in `harvest_runs.params`.
 
@@ -306,7 +312,7 @@ site:instagram.com "online coach" {metro_anchor} "apply"
 
 **Link-page fetch** (`lib/fetchLink.ts`): polite plain fetch, 1 req/sec, 10s timeout. If the body yields <500 chars of text (JS shell), set `link_fetch_status=failed` and continue — the candidate is still scoreable from IG data alone at lower confidence. Optional later fallback: a rendering-service actor. Never block on it. **Law 3 clause (ratified A3)**: the fetcher refuses Instagram hosts by predicate and throws on one — it is the enforcement point of "no direct scraping from infrastructure we own", not a place that merely avoids IG by habit. The <500-char rule diagnoses LIVE fetches only; provider-supplied packet text is stored as given, so a genuinely short link page is never discarded as a JS shell.
 
-## 4b. Hashtag + location mining (SECONDARY)
+## 4b. Hashtag + location mining (the VOLUME channel)
 Via commercial data actors, **no login**. Actor names churn: the builder selects currently-maintained "Instagram hashtag scraper" / "Instagram profile scraper"–class actors and **smoke-tests each with a ≤$2 run before any scale run**. Inputs from `config/metros.ts`; outputs mapped to CandidateSeed; expect flakiness and let Score do the filtering.
 
 **Hashtag library** — `config/hashtags.ts`, **RATIFIED v2 (A2-national)**. The canon rule is "expand from observed bios", and the calibration bios are now observed, so the national core grows from four tags to eleven and the metro tags become an opt-in bonus rather than something always appended:
@@ -316,6 +322,16 @@ national core: `#onlinefitnesscoach #onlinecoach #fitnesscoach #nutritioncoach #
 metro bonus (opt-in): `#nycfitnesscoach #nycpersonaltrainer #nycfitness #brooklynfitness #manhattanfitness #miamifitnesscoach #miamipersonaltrainer #miamifitness #fortlauderdalefitness #bocaratonfitness #westpalmbeachfitness #southfloridafitness`
 
 Location-tag feeds for marquee gyms/studios per metro: build the venue list from what harvested bios actually tag (data over guessing). **Ratified A3: `VENUE_TAGS` is EMPTY BY DESIGN** and stays empty until harvest data fills it — populating it before the first run would be exactly the armchair guess this rule exists to prevent. `npm run check` asserts it stays empty until the data exists.
+
+## 4.6 Zero-cost triage (ratified, A2-national)
+
+**The order-of-operations defect this fixes.** The spine's economics are "cheap filter first": pre-score on a bio, then pay to enrich what survives. 4b breaks that, because a hashtag post carries **no bio and no follower count** — so a 4b row has nothing to pre-score on, takes the bootstrap-enrich door, and gets **paid for before the cheap filter ever reads it**. The 4b smoke showed precisely who we would be buying: `@flexfitnessdigital` ("Websites for Fitness Coaches & Brands"), `@smdesigns.coachtools`, and a chiropractor, riding along with real coaches. The fixture actor returned bios, which hid this completely.
+
+So a **zero-cost triage** runs first, reading only the two fields such a row actually has — the **handle** and the **display name**. It calls nothing and spends nothing. Its whole job is to stop us buying an enrich for a company that sells software *to* coaches.
+
+**False positives are the expensive direction, more here than anywhere else.** A triaged row is killed before anything looks at it: there is no bio, no caption and no score by which to notice a mistake. So the rule list is deliberately few and deliberately literal — only the unambiguous "sells TO coaches" and "is a product, not a person" shapes are encoded, never "sounds commercial". `npm run check` §20 drives every rule against **every calibration approval and every handle the 4b smoke returned**, and a rule that kills any of them turns the suite red.
+
+**A kill is recorded, not executed.** The row stays `sourced` with `triage kill: <rule> — <why> (matched "…")` in `notes`, and that note is what excludes it. Nothing is deleted and nothing is tombstoned; clearing the note lets the row flow again, so the operator can audit and overturn every one. The expensive scoring step re-checks the marker **at its own query** rather than trusting the steps before it — that is the one step that costs real money per row.
 
 ## 4c. Commenter / tagged harvesting (STRETCH — bonus tier)
 Follower-list scraping is the flakiest actor class and often demands cookies (banned — Law 3). Sturdier graph proxies, no login: **commenters and tagged/collab accounts on a seed list** of 10–20 local coaches per metro (sourced from 4a/4b's best finds + Christopher's orbit, post-confirmation). Precision is low by design; the pre-score absorbs it.

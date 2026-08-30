@@ -121,25 +121,38 @@ export const FORBIDDEN_INPUT_KEYS = [
 ] as const
 
 /**
- * ═══════ DRAFT — HASHTAG ACTOR SELECTION, UNVERIFIED UNTIL SMOKE-TESTED ═══════
- * Part 4b again, for the 4b channel this time. The profile scraper above went
- * through this exact sequence on 2026-08-29 and is ratified; the hashtag-class
- * actor has not, so it starts where that one started.
+ * ═══════════ RATIFIED — apify~instagram-hashtag-scraper ═══════════
+ * Part 4b again, for the 4b channel this time, through the same sequence the
+ * profile scraper passed on 2026-08-29.
  *
- * The DRAFT marker is load-bearing in the same way: every hashtag SCALE path
- * refuses while it is set, and the one door left open is the smoke test,
- * capped at ACTOR_SMOKE_TEST_CAP.
+ * THE SMOKE TEST THAT RATIFIED IT (npm run smoke:hashtag, 2026-08-30):
+ *   tag       #onlinefitnesscoach, limit 15
+ *   charged   $0.0000 — Apify reported no usage at this size, against the $2
+ *             ceiling. A free run is still a run: the mapping was observed.
+ *   items     15 posts -> 14 distinct owner handles (93% unique at n=15)
+ *   coverage  ownerUsername, ownerFullName, caption, likesCount,
+ *             commentsCount, url, timestamp — 15/15 on every one
+ *   samples   @bthevibefit (Life Transformation Coach), @shexfit_ (Fitness &
+ *             Wellness coach), @kdfitnesscoaching (Online Coach),
+ *             @staceyn_fitnessx (PT & Female Online Coach) — on thesis.
+ *   noise     @flexfitnessdigital ("Websites for Fitness Coaches"),
+ *             @smdesigns.coachtools, and a chiropractor. B2B vendors selling
+ *             TO coaches are the characteristic 4b contaminant, and they are
+ *             what the zero-cost triage exists to stop before paid enrichment.
  *
- * WHAT THE SMOKE TEST HAS TO ANSWER HERE, beyond "does it run": a hashtag
- * scraper returns POSTS, not profiles, so the interesting question is whether
- * an owner USERNAME rides along with each post and how much profile data comes
- * with it. If only usernames arrive, 4b becomes a handle feed that the profile
- * actor must then enrich — which is a real cost the projection has to carry,
- * not a detail.
+ * THE FINDING THAT MATTERS MOST: a hashtag post carries NO bio and NO follower
+ * count. 4b is a HANDLE FEED, not a profile feed, so every handle it produces
+ * needs a profile-actor enrich before it can be scored. That cost is real and
+ * belongs in the projection rather than assumed away.
+ *
+ * The operator saw those handles and approved. The marker stays load-bearing
+ * in the other direction now: a selection that silently regresses to DRAFT
+ * turns `npm run check` red, because un-ratifying an actor is a canon decision.
  * ═══════════════════════════════════════════════════════════════════════════
  */
 export const HASHTAG_ACTOR_SELECTION_STATUS =
-  'DRAFT (A2-national) — candidate ids listed, none smoke-tested; scale runs refuse until ratified'
+  'ratified v1 (2026-08-30) — apify~instagram-hashtag-scraper · smoke #onlinefitnesscoach limit 15 · ' +
+  '$0.0000 charged · 15 posts -> 14 owners · all mapped fields present · operator approved'
 
 /** True while no hashtag actor has passed its smoke test. Gates every scale run. */
 export function hashtagActorSelectionIsDraft(): boolean {
