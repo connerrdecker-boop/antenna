@@ -29,6 +29,8 @@ import { DB_PATH, openSqlite } from '@/db/connection'
 import { PipelineHalt } from '@/lib/env'
 import { normalizeHandle } from '@/lib/handle'
 import { addTombstone, handleFingerprint, isForgotten } from '@/lib/tombstones'
+import { getRecord, purgePersonLinked, resolveStore, STORE_KEYS } from '@/lib/remoteStore'
+import { pushExportedState } from '@/lib/stateExport'
 import type { Snapshot } from './state-restore'
 
 const FILTERED = 'state/.forget-filtered.json'
@@ -37,7 +39,7 @@ function positional(): string | undefined {
   return process.argv.slice(2).find((a) => !a.startsWith('--'))
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const raw = positional()
   if (!raw) {
     throw new PipelineHalt('usage: npm run forget -- <handle>   (the handle to erase, with or without @)')
@@ -135,14 +137,57 @@ function main(): void {
       `ERASURE INCOMPLETE — ${still} candidate row(s) and ${stillObs} observation(s) for @${handle} survived the rebuild.`,
     )
   }
-  console.log(`  @${handle} is gone: 0 candidate rows, 0 observations, packet removed.`)
-  console.log('  The tombstone keeps them out of the next harvest.')
-  console.log('  Re-export your snapshot and hand it to yourself — the old one still has them.\n')
+  // ── 6. THE REMOTE STORE (Law 5, ratified 2026-08-30) ────────────────────
+  // The store is the primary durability layer, which means it holds a snapshot
+  // containing this person. Erasing them locally while leaving that copy in
+  // place would make Law 5's promise false in precisely the place the data is
+  // most durable. So every person-linked record is DELETED outright and then
+  // re-pushed from the rebuilt database — delete-then-write rather than
+  // overwrite, because a half-failed overwrite leaves the old snapshot whole.
+  //
+  // The result is VERIFIED by re-reading the store rather than by trusting the
+  // calls, the same discipline the ERASURE INCOMPLETE check above applies to
+  // the local database — now applied to the copy that outlives the container.
+  try {
+    const store = await resolveStore()
+    const purged = await purgePersonLinked(store)
+    console.log(`  remote store: purged ${purged.length ? purged.join(', ') : 'nothing (no person-linked records present)'}`)
+
+    const repushed = await pushExportedState()
+    console.log(`  remote store: re-pushed ${repushed.map((r) => r.key).join(', ')} from the rebuilt database`)
+
+    const pushedBack = await getRecord<Snapshot>(store, STORE_KEYS.snapshot)
+    const leaked =
+      (pushedBack?.candidates ?? []).some((c) => String(c.handle) === handle) ||
+      (pushedBack?.observations ?? []).some((o) => String(o.handle) === handle)
+    if (leaked) {
+      throw new PipelineHalt(
+        `ERASURE INCOMPLETE — @${handle} still appears in the remote store's snapshot after the purge. ` +
+        'The local database is clean; do not consider this erasure honoured until the store is too.',
+      )
+    }
+    console.log('  remote store: verified — the person appears nowhere in the pushed snapshot.')
+  } catch (e) {
+    if (e instanceof PipelineHalt && /ERASURE INCOMPLETE/.test(e.message)) throw e
+    const why = e instanceof Error ? e.message : String(e)
+    // Law 5 outranks Law 7 HERE and only here. Everywhere else a durability
+    // failure is reported and swallowed so the tool never blocks the campaign;
+    // an erasure that quietly left a remote copy behind would be a promise
+    // broken silently, which is worse than a loud stop.
+    throw new PipelineHalt(
+      `LOCAL ERASURE SUCCEEDED, REMOTE PURGE DID NOT — @${handle} is gone from this database, but the ` +
+      `remote store could not be cleaned:\n\n  ${why}\n\nRe-run \`npm run forget -- ${handle}\` once the store ` +
+      'is reachable. The tombstone is already written, so nothing re-collects them meanwhile.',
+    )
+  }
+
+  console.log('')
+  console.log(`  @${handle} is gone: 0 candidate rows, 0 observations, packet removed,`)
+  console.log('  and purged from the remote state store.')
+  console.log('  The tombstone keeps them out of the next harvest.\n')
 }
 
-try {
-  main()
-} catch (e) {
+main().catch((e: unknown) => {
   if (e instanceof PipelineHalt) { console.error(`\n■ ${e.message}\n`); process.exit(2) }
   throw e
-}
+})

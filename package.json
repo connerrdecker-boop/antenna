@@ -17,6 +17,8 @@
     "harvest": "tsx scripts/harvest.ts",
     "smoke:actor": "tsx scripts/smoke-actor.ts",
     "state:export": "tsx scripts/state-export.ts",
+    "state:push": "tsx scripts/state-push.ts",
+    "state:pull": "tsx scripts/state-pull.ts",
     "state:restore": "tsx scripts/state-restore.ts",
     "state:verify": "tsx scripts/state-verify.ts",
     "forget": "tsx scripts/forget.ts",

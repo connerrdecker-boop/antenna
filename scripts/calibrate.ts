@@ -45,15 +45,18 @@
  * are recovered ONCE into a cache the score phase reads, which also means
  * re-scoring never re-charges the actor.
  *
- * The refetch goes through the SMOKE DOOR deliberately. config/actors.ts still
- * reads DRAFT, and ratifying it is the operator's decision, not a side effect
- * of needing packets. The smoke door is the one path Part 4b leaves open while
- * DRAFT, capped at ACTOR_SMOKE_TEST_CAP ($2) against a ~$0.08 run.
+ * The refetch takes the ordinary SCALE door. It went through the smoke door on
+ * the run that produced this batch, because config/actors.ts still read DRAFT
+ * then and ratifying an actor is the operator's decision rather than a side
+ * effect of needing packets. That selection is ratified now (with this run
+ * recorded in its evidence), so the scale door is the honest path and the
+ * smoke cap no longer has to stand in for a ratification that had not happened.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { ACTOR_SMOKE_TEST_CAP, CAPS, PRESCORE_THRESHOLD } from '@/config/limits'
+import { CAPS, PRESCORE_THRESHOLD } from '@/config/limits'
 import { getSqlite } from '@/db/connection'
 import { loadEnvLocal, PipelineHalt } from '@/lib/env'
+import { CALIBRATION_ARTIFACT_PATH, CALIBRATION_PACKETS_PATH } from '@/lib/stateExport'
 import { spentIn } from '@/pipeline/lib/budget'
 import { prescoreCandidate } from '@/pipeline/prescore'
 import { scoreCandidate } from '@/pipeline/score'
@@ -63,7 +66,7 @@ import type { ProfilePacket, ProfileProvider } from '@/pipeline/types'
 import { runMigrations } from './migrate'
 
 export const SCORE_CONTEXT = 'calibration'
-export const ARTIFACT_PATH = 'state/calibration/batch.json'
+export const ARTIFACT_PATH = CALIBRATION_ARTIFACT_PATH
 /**
  * Recovered packets. Person-linked (captions, bios), so it lives under the
  * gitignored state/calibration/ with the artifact rather than in profiles/:
@@ -71,7 +74,7 @@ export const ARTIFACT_PATH = 'state/calibration/batch.json'
  * number, and a null follower count is UNKNOWN, not zero — round-tripping
  * through it would silently lose exactly those candidates.
  */
-export const PACKETS_PATH = 'state/calibration/packets.json'
+export const PACKETS_PATH = CALIBRATION_PACKETS_PATH
 
 type Row = {
   id: number
@@ -94,9 +97,18 @@ type Entry = {
   /** what the gate WOULD have done, recorded rather than obeyed */
   prescore_verdict: 'pass' | 'kill' | 'failed' | null
   bypassed: boolean
-  /** stage 2 */
+  /** stage 2 — what the RULES arithmetic stored */
   tier: string | null
   score: number | null
+  /**
+   * What the MODEL itself claimed, before computeScoreAndTier() overrode it.
+   * Ratified after the A2 run, where the two disagreed on 24 of 32 and 6 of the
+   * 7 B tiers existed only because of the override. Recording only the winner
+   * makes that invisible.
+   */
+  claimed_tier: string | null
+  claimed_score: number | null
+  arithmetic_override: boolean
   reason: string | null
   score_failed: boolean
   /** what actually reached the model, so a weak judgment is legible as weak */
@@ -147,7 +159,8 @@ const upsert = (a: Artifact, handle: string): Entry => {
     e = {
       handle, name: null, follower_count: null,
       pre_score: null, kill_reasons: [], prescore_verdict: null, bypassed: false,
-      tier: null, score: null, reason: null, score_failed: false, inputs: null,
+      tier: null, score: null, claimed_tier: null, claimed_score: null,
+      arithmetic_override: false, reason: null, score_failed: false, inputs: null,
     }
     a.entries.push(e)
   }
@@ -280,13 +293,12 @@ async function main() {
     const handles = rows.map((r) => r.handle)
     const spentBefore = spentIn('actors')
     console.log(
-      `[refetch] apify profile actor · ${handles.length} handles · SMOKE DOOR (selection is DRAFT)\n` +
-      `  hard cap $${ACTOR_SMOKE_TEST_CAP.toFixed(2)} · pre-run estimate $${estimateActorRunUsd(handles.length).toFixed(4)}\n` +
+      `[refetch] apify profile actor · ${handles.length} handles · scale door (selection ratified)\n` +
+      `  pre-run estimate $${estimateActorRunUsd(handles.length).toFixed(4)}\n` +
       `  actors spent $${spentBefore.toFixed(4)} of $${CAPS.actors.toFixed(2)}\n`,
     )
 
     const actor = actorProvider({
-      smokeTest: true,
       runRef: 'calibrate:refetch',
       onWait: (status, ms) => console.log(`  … ${status} (${Math.round(ms / 1000)}s)`),
     })
@@ -342,8 +354,15 @@ async function main() {
       if (res.ok) {
         e.tier = res.tier
         e.score = res.score
+        e.claimed_tier = res.claimed?.tier ?? null
+        e.claimed_score = res.claimed?.score ?? null
+        e.arithmetic_override =
+          res.claimed !== null && (res.claimed.tier !== res.tier || res.claimed.score !== res.score)
+        const drift = e.arithmetic_override
+          ? `  [model said ${e.claimed_tier} ${e.claimed_score}]`
+          : ''
         e.reason = oneLineReason(c.id)
-        console.log(`  @${c.handle.padEnd(21)} -> ${res.tier} ${String(res.score).padStart(3)}  ${e.reason ?? ''}`)
+        console.log(`  @${c.handle.padEnd(21)} -> ${res.tier} ${String(res.score).padStart(3)}${drift}  ${e.reason ?? ''}`)
       } else {
         e.score_failed = true
         e.reason = `SCORE FAILED after retry: ${res.error}`
@@ -374,9 +393,11 @@ async function main() {
   const done = artifact.entries.filter((e) => e.tier !== null)
   const byTier = ['A', 'B', 'C', 'X'].map((t) => `${t}:${done.filter((e) => e.tier === t).length}`).join(' · ')
   const wouldKill = artifact.entries.filter((e) => e.prescore_verdict === 'kill')
+  const overridden = artifact.entries.filter((e) => e.arithmetic_override)
 
   console.log(
     `\ndone — ${done.length} scored (${byTier}) · ${wouldKill.length} would have been killed by the gate\n` +
+    `${overridden.length} of ${done.length} had the RULES arithmetic override the model's own claim\n` +
     `llm spend this run: $${spent.toFixed(4)} · llm total: $${llmSpend().toFixed(4)}\n` +
     `artifact: ${ARTIFACT_PATH}\n`,
   )

@@ -10,7 +10,11 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import {
   CENSUS_PATH, CENSUS_SCHEMA, breachReport, censusBreaches, type Census,
 } from '@/lib/census'
-import { runDbAssertions } from '@/lib/assertions'
+import { killedEnrichmentBreaches, runDbAssertions, type KillEnrichRow } from '@/lib/assertions'
+import {
+  assertNamedStore, personLinkedKeysFrom, purgePersonLinked,
+  PERSON_LINKED_KEYS, STATE_STORE_NAME, STORE_KEYS,
+} from '@/lib/remoteStore'
 import { PipelineHalt } from '@/lib/env'
 import { TOMBSTONE_PATH, handleFingerprint, readTombstones } from '@/lib/tombstones'
 import {
@@ -684,13 +688,50 @@ section('14. a prescore-killed candidate can never re-enter a gate (Law 7 leak c
     !enrichAllowed({ bio: 'coach bio', pre_score: null, link_domain: null }) &&
     !enrichAllowed({ bio: null, pre_score: null, link_domain: 'stan.store' }))
 
-  // And the live DB agrees: nothing killed has been enriched.
-  const enrichedKills = q<{ handle: string; pre_score: number }>(
-    'SELECT handle, pre_score FROM candidates WHERE pre_score IS NOT NULL AND pre_score < ? AND last_enriched IS NOT NULL',
+  // THE CARVE-OUT, PROVEN BOTH WAYS (ratified after the A2 calibration run).
+  // The leak is paying to enrich something already killed. Enrichment that
+  // PREDATES the pre-score cannot be that leak, and the calibration batch is
+  // exactly that shape. A carve-out that only ever said yes would be a hole,
+  // so the same predicate is tested against the shape it must still reject.
+  {
+    const before = '2026-08-30T00:08:24.000Z'
+    const after = '2026-08-30T00:59:00.000Z'
+    const prescored = '2026-08-30T00:25:05.000Z'
+    const row = (label: string, last_enriched: string | null, prescored_at: string | null) =>
+      ({ handle: label, pre_score: PRESCORE_THRESHOLD - 1, last_enriched, prescored_at })
+
+    const allowed = [
+      row('enriched BEFORE the prescore (the calibration shape)', before, prescored),
+      row('never enriched at all', null, prescored),
+      row('never enriched, never prescored', null, null),
+    ]
+    assert('the carve-out ALLOWS enrichment that predates the kill',
+      killedEnrichmentBreaches(allowed).length === 0,
+      killedEnrichmentBreaches(allowed).map((r) => r.handle).join(' | '))
+
+    const rejected = [
+      row('enriched AFTER the prescore (the Law 7 leak)', after, prescored),
+      row('enriched at the SAME instant (ordering not established)', prescored, prescored),
+      row('enriched with NO ledger record (ordering unprovable)', before, null),
+    ]
+    const caught = killedEnrichmentBreaches(rejected)
+    assert('the carve-out still REJECTS enrichment after a kill, ties, and unprovable ordering',
+      caught.length === rejected.length,
+      `only caught ${caught.length} of ${rejected.length}: ${caught.map((r) => r.handle).join(' | ')}`)
+  }
+
+  // And the live DB agrees, under the same predicate.
+  const enrichedKills = q<KillEnrichRow>(
+    `SELECT c.handle, c.pre_score, c.last_enriched,
+            (SELECT MIN(s.at) FROM spend s WHERE s.run_ref = 'prescore:' || c.handle) AS prescored_at
+       FROM candidates c
+      WHERE c.pre_score IS NOT NULL AND c.pre_score < ? AND c.last_enriched IS NOT NULL`,
     PRESCORE_THRESHOLD,
   )
-  assert('no killed candidate in the DB carries an enrichment timestamp',
-    enrichedKills.length === 0, enrichedKills.map((r) => `${r.handle}=${r.pre_score}`).join(', '))
+  const dbLeaks = killedEnrichmentBreaches(enrichedKills)
+  assert('no killed candidate in the DB was enriched AFTER its kill',
+    dbLeaks.length === 0,
+    dbLeaks.map((r) => `${r.handle}=${r.pre_score} enriched ${r.last_enriched} vs prescored ${r.prescored_at ?? 'NO LEDGER RECORD'}`).join(', '))
 }
 
 // 15. The wired Apify actor (Part 4b): selection discipline, Law 3, cost
@@ -1151,6 +1192,106 @@ section('17. erasure + durability machinery (forget · restore · write-through)
     try { writeStateExport(dead, { paths: scratch }); return false } catch { /* expected raw */ }
     try { return writeStateExportSafely.length === 0 } catch { return false }
   })())
+}
+
+// 18. The remote state store (ratified 2026-08-30) — the PRIMARY durability
+//     layer. Law 5's erasure promise now has to reach a copy that outlives the
+//     container, so the purge is proven behaviourally rather than read.
+section('18. remote state store — named, erasable, and the write-through reaches it')
+{
+  const stripComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+
+  // 18a. Named, or nothing. Apify garbage-collects unnamed stores, so a
+  // durability layer on one has a silent expiry date — the exact failure this
+  // was built to end.
+  assert('the store name is a non-empty constant', STATE_STORE_NAME.trim().length > 0, STATE_STORE_NAME)
+  for (const [label, name] of [['empty', ''], ['whitespace', '   ']] as const) {
+    let refused = false
+    try { assertNamedStore(name) } catch { refused = true }
+    assert(`an ${label} store name is REFUSED (unnamed stores expire)`, refused)
+  }
+  assert('a named store is accepted', assertNamedStore(STATE_STORE_NAME) === STATE_STORE_NAME)
+
+  const storeSrc = stripComments(readFileSync('lib/remoteStore.ts', 'utf8'))
+  assert('the store name is a constant, not read from the environment',
+    !/process\.env\.[A-Z_]*STORE/.test(storeSrc))
+  assert('the token travels in an Authorization header, never a query string',
+    /Authorization/.test(storeSrc) && !/token=\$\{/.test(storeSrc))
+
+  // 18b. Every person-linked record is erasable. Derived, not hand-checked: a
+  // new record added to STORE_KEYS that is not explicitly person-FREE must
+  // appear in PERSON_LINKED_KEYS or this fails.
+  const derived = personLinkedKeysFrom(Object.values(STORE_KEYS))
+  const uncovered = derived.filter((k) => !PERSON_LINKED_KEYS.includes(k))
+  assert('every person-linked store key is covered by the purge list',
+    uncovered.length === 0, `uncovered: ${uncovered.join(', ')}`)
+  assert('the census is NOT purged (person-free, and it is the tripwire)',
+    !PERSON_LINKED_KEYS.includes(STORE_KEYS.census))
+
+  // 18c. THE PURGE, PROVEN. An in-memory store stands in for the network, so
+  // the erasure is tested rather than asserted about.
+  asyncProbes.push((async () => {
+    const held = new Set<string>([
+      STORE_KEYS.snapshot, STORE_KEYS.census, STORE_KEYS.tombstones,
+      STORE_KEYS.calibrationBatch, STORE_KEYS.calibrationPackets,
+    ])
+    const deleted: string[] = []
+    const fake = {
+      listKeys: async () => [...held],
+      deleteRecord: async (_s: { id: string; name: string }, key: string) => {
+        held.delete(key); deleted.push(key)
+      },
+    }
+    const store = { id: 'probe', name: STATE_STORE_NAME }
+    const purged = await purgePersonLinked(store, fake)
+
+    assert('the purge deletes every person-linked record',
+      PERSON_LINKED_KEYS.every((k) => !held.has(k)),
+      `still held: ${PERSON_LINKED_KEYS.filter((k) => held.has(k)).join(', ')}`)
+    assert('the purge deletes NOTHING person-free',
+      held.has(STORE_KEYS.census) && held.has(STORE_KEYS.tombstones),
+      `census=${held.has(STORE_KEYS.census)} tombstones=${held.has(STORE_KEYS.tombstones)}`)
+    assert('the purge reports exactly what it deleted',
+      purged.length === deleted.length && purged.every((k) => deleted.includes(k)))
+
+    // Idempotent: a second purge on an already-clean store deletes nothing and
+    // does not error. A forget that had to be re-run must not fail on step two.
+    const again = await purgePersonLinked(store, fake)
+    assert('purging an already-purged store is a no-op, not an error', again.length === 0)
+  })())
+
+  // 18d. forget actually calls it, and VERIFIES rather than trusting.
+  const forgetSrc = stripComments(readFileSync('scripts/forget.ts', 'utf8'))
+  assert('forget purges the remote store', /purgePersonLinked\(/.test(forgetSrc))
+  assert('forget re-pushes the rebuilt state', /pushExportedState\(/.test(forgetSrc))
+  assert('forget RE-READS the store to verify the person is gone',
+    /getRecord</.test(forgetSrc) && /ERASURE INCOMPLETE/.test(forgetSrc))
+  assert('a failed remote purge HALTS the forget (Law 5 outranks Law 7 here)',
+    /LOCAL ERASURE SUCCEEDED, REMOTE PURGE DID NOT/.test(forgetSrc))
+
+  // 18e. The ratify write-through reaches the store, and cannot block on it.
+  const exportSrc = stripComments(readFileSync('lib/stateExport.ts', 'utf8'))
+  assert('the ratify write-through pushes to the remote store',
+    /pushExportedStateSafely\(\)/.test(exportSrc))
+  assert('the push is not awaited on the keystroke path (Law 7: never blocks)',
+    /void pushExportedStateSafely\(\)/.test(exportSrc))
+  assert('the remote push never throws (it reports, like the local export)',
+    /export async function pushExportedStateSafely/.test(exportSrc) && /catch/.test(exportSrc))
+  // Order matters: a refused export must not be shipped to the store anyway.
+  const guardAt = exportSrc.indexOf('if (!result.wrote)')
+  const pushAt = exportSrc.indexOf('void pushExportedStateSafely()')
+  assert('the regression guard runs BEFORE the push, in source order',
+    guardAt > 0 && pushAt > 0 && guardAt < pushAt, `guard@${guardAt} push@${pushAt}`)
+
+  // 18f. The pull is the documented first step of a fresh container.
+  assert('state:pull and state:push are wired as npm scripts', (() => {
+    const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { scripts: Record<string, string> }
+    return Boolean(pkg.scripts['state:pull'] && pkg.scripts['state:push'])
+  })())
+  assert('the pull restores through the gated restore path, never a raw INSERT',
+    /restoreFromSnapshot\(/.test(stripComments(readFileSync('scripts/state-pull.ts', 'utf8'))))
+  assert('the pull refuses an empty store loudly rather than restoring nothing',
+    /is empty — there is nothing to pull/.test(readFileSync('scripts/state-pull.ts', 'utf8')))
 }
 
 // Drain the behavioural probes, then report. Nothing prints before every

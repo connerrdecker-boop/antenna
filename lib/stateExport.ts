@@ -28,8 +28,17 @@ import type BetterSqlite3 from 'better-sqlite3'
 import { getSqlite } from '@/db/connection'
 import { SPEND_CATEGORIES } from '@/db/enums'
 import { CENSUS_PATH, CENSUS_TABLES, readCensusFrom, type Census } from './census'
+import { putRecord, resolveStore, STORE_KEYS } from './remoteStore'
+import { TOMBSTONE_PATH } from './tombstones'
 
 export const SNAPSHOT_PATH = 'state/snapshot.json'
+/**
+ * The calibration run's artifacts. They live here, beside SNAPSHOT_PATH,
+ * because they are durability paths and `lib/` may not import from `scripts/`.
+ * scripts/calibrate.ts re-exports them under its own names.
+ */
+export const CALIBRATION_ARTIFACT_PATH = 'state/calibration/batch.json'
+export const CALIBRATION_PACKETS_PATH = 'state/calibration/packets.json'
 
 /** Where an export writes. Overridable so probes can exercise it on scratch files. */
 export type ExportPaths = { census: string; snapshot: string }
@@ -202,10 +211,59 @@ export function writeStateExportSafely(): { ok: true } | { ok: false; error: str
       console.error(`[durability] state export refused after a ratify decision:\n${error}`)
       return { ok: false, error }
     }
+    // The remote store is the primary durability layer (ratified 2026-08-30),
+    // so the ratify hour reaches it too — a decision that only ever landed in
+    // a gitignored local file is one container reclaim away from being gone.
+    //
+    // Deliberately NOT awaited: this is a network round trip sitting on the
+    // operator's keystroke path and Law 7 says the tool never blocks the
+    // campaign. It is also deliberately AFTER the regression guard above, so
+    // a refused export never ships a regressed snapshot to the store.
+    void pushExportedStateSafely()
     return { ok: true }
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     console.error(`[durability] state export failed after a ratify decision: ${error}`)
+    return { ok: false, error }
+  }
+}
+
+/**
+ * Upload whatever the last export wrote. Reads the FILES rather than the
+ * database, so the store can never disagree with what writeStateExport()
+ * actually produced — and so the regression guard's refusal is honoured
+ * rather than routed around.
+ */
+export async function pushExportedState(): Promise<{ key: string; bytes: number }[]> {
+  const store = await resolveStore()
+  const records: [string, string][] = [
+    [STORE_KEYS.snapshot, SNAPSHOT_PATH],
+    [STORE_KEYS.census, CENSUS_PATH],
+    [STORE_KEYS.tombstones, TOMBSTONE_PATH],
+    [STORE_KEYS.calibrationBatch, CALIBRATION_ARTIFACT_PATH],
+    [STORE_KEYS.calibrationPackets, CALIBRATION_PACKETS_PATH],
+  ]
+  const written: { key: string; bytes: number }[] = []
+  for (const [key, path] of records) {
+    if (!existsSync(path)) continue
+    written.push({ key, bytes: await putRecord(store, key, JSON.parse(readFileSync(path, 'utf8'))) })
+  }
+  return written
+}
+
+/**
+ * NEVER THROWS and never rejects — the same contract as
+ * writeStateExportSafely(), for the same Law 7 reason. A failed push is a real
+ * problem, and both `npm run state:pull` and the census will surface it; a
+ * ratify keystroke that errored because a network call failed would be worse.
+ */
+export async function pushExportedStateSafely(): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await pushExportedState()
+    return { ok: true }
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e)
+    console.error(`[durability] remote state push failed (the local export is intact): ${error}`)
     return { ok: false, error }
   }
 }

@@ -120,8 +120,22 @@ export function evidenceLines(r: ScoreResult): string[] {
   return lines
 }
 
+/**
+ * `claimed` is what the MODEL said before the RULES arithmetic overrode it,
+ * and it is deliberately part of the return rather than a log line.
+ *
+ * The A2 calibration run found the model disagreeing with its own rubric on 24
+ * of 32 profiles — almost always by exactly the +10 base it had not applied —
+ * and 6 of the 7 B tiers existed only because the arithmetic corrected it. That
+ * is a fact about prompt calibration, and it was recoverable only from console
+ * scrollback: the DB stores the computed values, as it should, so the model's
+ * own claim vanished the moment the terminal did. A score artifact that records
+ * both can be diffed; one that records only the winner cannot.
+ *
+ * `null` for a deterministic X (a private account), where no prompt ran at all.
+ */
 export type ScoreOutcome =
-  | { ok: true; tier: Tier; score: number }
+  | { ok: true; tier: Tier; score: number; claimed: { tier: Tier; score: number } | null }
   | { ok: false; error: string }
 
 export async function scoreCandidate(
@@ -166,7 +180,7 @@ export async function scoreCandidate(
         ]),
         at, candidate.id,
       )
-    return { ok: true, tier: 'X', score: 0 }
+    return { ok: true, tier: 'X', score: 0, claimed: null }
   }
 
   const system = renderScorePrompt(sqlite)
@@ -221,5 +235,5 @@ export async function scoreCandidate(
       r.dims.metro.metro, r.dims.metro.confidence,
       r.extracted.name || null, now, candidate.id,
     )
-  return { ok: true, tier, score }
+  return { ok: true, tier, score, claimed: { tier: r.tier, score: Math.round(r.score) } }
 }

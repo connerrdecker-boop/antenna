@@ -25,6 +25,47 @@ import { LOI_TIERS, SPEND_CATEGORIES, type Status } from '@/db/enums'
 
 export type AssertionResult = { label: string; ok: boolean; detail?: string }
 
+/** One killed-and-enriched candidate, with the ledger's word on when it was pre-scored. */
+export type KillEnrichRow = {
+  handle: string
+  pre_score: number
+  last_enriched: string | null
+  /** ISO time of the FIRST paid pre-score call for this handle; null when the ledger has none. */
+  prescored_at: string | null
+}
+
+/**
+ * THE CALIBRATION CARVE-OUT (ratified after the A2 calibration run).
+ *
+ * The Law 7 leak this guards is money: a candidate the cheap filter KILLED
+ * must never afterwards reach paid enrichment. What the original assertion
+ * actually tested was the co-occurrence of a sub-threshold pre_score and an
+ * enrichment timestamp — which catches the leak, but also catches the
+ * harmless inverse, where enrichment happened FIRST and the pre-score arrived
+ * later. The A2 calibration batch is exactly that inverse: 32 handles were
+ * enriched by a ratified actor run, and only then pre-scored with the kill
+ * gate bypassed. No kill was ever paid past.
+ *
+ * So the predicate is temporal, not positional:
+ *
+ *   enrichment BEFORE the pre-score  -> allowed  (nothing was bought after a kill)
+ *   enrichment AFTER  the pre-score  -> BREACH   (the Law 7 leak, still red)
+ *   ordering unprovable              -> BREACH   (fail closed, never open)
+ *
+ * The unprovable case matters: without a ledger row there is no evidence the
+ * enrichment predates the kill, and an invariant that assumes innocence when
+ * it cannot tell is not an invariant. Timestamps are ISO-8601 UTC throughout,
+ * so lexicographic comparison is chronological.
+ */
+export function killedEnrichmentBreaches<T extends KillEnrichRow>(rows: T[]): T[] {
+  return rows.filter((r) => {
+    if (r.last_enriched === null) return false
+    if (r.prescored_at === null) return true
+    // Strictly before: equal timestamps cannot establish that enrichment came first.
+    return !(r.last_enriched < r.prescored_at)
+  })
+}
+
 export function runDbAssertions(sqlite: BetterSqlite3.Database): AssertionResult[] {
   const out: AssertionResult[] = []
   const q = <T>(sql: string, ...a: unknown[]): T[] => sqlite.prepare(sql).all(...a) as T[]
@@ -156,12 +197,22 @@ export function runDbAssertions(sqlite: BetterSqlite3.Database): AssertionResult
   add('no all-null observation exists (Part IX: a metric-free row is noise)', allNull.c === 0, `${allNull.c} rows`)
 
   // ── the pre-score kill is final (Law 7 leak class) ─────────────────────
-  const enrichedKills = q<{ handle: string; pre_score: number }>(
-    'SELECT handle, pre_score FROM candidates WHERE pre_score IS NOT NULL AND pre_score < ? AND last_enriched IS NOT NULL',
+  // The ledger, not the candidate row, says WHEN the pre-score happened:
+  // `updated_at` is rewritten by every later write, but a spend row is
+  // append-only and survives export/restore, so the ordering stays provable
+  // in a rebuilt container. MIN() is the first paid attempt — the strictest
+  // reading of "when pre-scoring began".
+  const enrichedKills = q<KillEnrichRow>(
+    `SELECT c.handle, c.pre_score, c.last_enriched,
+            (SELECT MIN(s.at) FROM spend s WHERE s.run_ref = 'prescore:' || c.handle) AS prescored_at
+       FROM candidates c
+      WHERE c.pre_score IS NOT NULL AND c.pre_score < ? AND c.last_enriched IS NOT NULL`,
     PRESCORE_THRESHOLD,
   )
-  add('no killed candidate carries an enrichment timestamp',
-    enrichedKills.length === 0, enrichedKills.map((r) => `${r.handle}=${r.pre_score}`).join(', '))
+  const leaks = killedEnrichmentBreaches(enrichedKills)
+  add('no killed candidate was enriched AFTER its kill (Law 7; calibration carve-out applies)',
+    leaks.length === 0,
+    leaks.map((r) => `${r.handle}=${r.pre_score} enriched ${r.last_enriched} vs prescored ${r.prescored_at ?? 'NO LEDGER RECORD'}`).join(', '))
 
   // ── scoring provenance ──────────────────────────────────────────────────
   const unversioned = one<{ c: number }>(

@@ -23,6 +23,26 @@
  * The operator saw those packets and said go. That is what ratification IS
  * here — a human looking at real output, never an id typed into a config.
  *
+ * WHAT THE RATIFIED SELECTION HAS DONE SINCE (both runs on this actor):
+ *   QI1TA8oJBccV0BHp3  the A2 scale enrich · 32 handles · SUCCEEDED · $0.0806
+ *                      one batched run, not 32 — prefetch() through the batch
+ *                      door. Produced the 31 observations the calibration
+ *                      scored against.
+ *   calibrate:refetch  32 handles · SUCCEEDED · $0.0312 · 32/32 packets, 357
+ *                      captions. A rebuilt container had lost ./profiles
+ *                      (gitignored, Law 5) and the snapshot cannot carry
+ *                      captions, so the scorer's stated INPUT was arriving
+ *                      empty and alive_30d — a GATE — had nothing to read.
+ *   Total on this selection: $0.1170 of the $100 actors cap. Zero failed runs.
+ *
+ * That re-ratification is recorded HERE rather than in a chat log because the
+ * first one was not: the operator approved this actor in a previous session,
+ * the marker was flipped in a working tree, and the container was reclaimed
+ * before it was committed. The database remembered the spend; git did not
+ * remember the authorization, so a later session found a DRAFT marker and a
+ * ledger that disagreed with it. Evidence that lives only in a terminal is
+ * evidence that does not survive, which is the same lesson as Part XVI.5.
+ *
  * The marker stays load-bearing in the other direction now, exactly as the A3
  * config markers did: a selection that silently regresses to DRAFT turns
  * `npm run check` red, because un-ratifying an actor is a canon decision
@@ -32,7 +52,9 @@
  */
 
 export const ACTOR_SELECTION_STATUS =
-  'ratified v1 (2026-08-29) — apify~instagram-profile-scraper, smoke run H9wnMKKDF50CPcKWn, $0.0052, 3/3 packets complete, operator approved'
+  'ratified v1 (2026-08-29, re-ratified for git 2026-08-30) — apify~instagram-profile-scraper · ' +
+  'smoke H9wnMKKDF50CPcKWn $0.0052 3/3 packets · scale QI1TA8oJBccV0BHp3 32 handles $0.0806 · ' +
+  'calibrate:refetch 32/32 $0.0312 · operator approved'
 
 /** True while no actor has passed its smoke test. Gates every scale run. */
 export function actorSelectionIsDraft(): boolean {
