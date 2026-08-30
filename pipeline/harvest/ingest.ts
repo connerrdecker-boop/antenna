@@ -37,6 +37,10 @@ export async function runHarvest(
   // Law 6: the gate comes BEFORE any provider work.
   ensureBudget(adapter.category, estCost)
 
+  // An adapter may report a real receipt; otherwise the estimate stands.
+  let reported: number | null = null
+  const paramsWithSpend: AdapterParams = { ...params, onSpend: (usd) => { reported = usd } }
+
   const startedAt = new Date().toISOString()
   // Law 4 / Part 4a: params carries EVERY query/hashtag/seed the run asks for.
   const paramsJson = JSON.stringify({
@@ -56,12 +60,12 @@ export async function runHarvest(
   log(`run #${runId} · ${adapter.name} · ${params.provider} · est $${estCost.toFixed(2)}`)
 
   try {
-    const seeds = await adapter.run(params)
+    const seeds = await adapter.run(paramsWithSpend)
     const { itemsNew, duplicates, unusable } = ingestSeeds(seeds, runId, log)
 
     // Fixture runs cost nothing; real providers will report receipts at
     // wiring time. Either way the run is on the ledger (Part X).
-    const spentActual = params.provider === 'fixture' ? 0 : estCost
+    const spentActual = params.provider === 'fixture' ? 0 : (reported ?? estCost)
     recordSpend(
       adapter.category,
       spentActual,

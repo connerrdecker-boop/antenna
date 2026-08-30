@@ -9,6 +9,12 @@ import { HASHTAG_LIBRARY_STATUS } from '@/config/hashtags'
 import { QUERY_LIBRARY_STATUS } from '@/config/queries'
 import { PipelineHalt } from '@/lib/env'
 import { fetchLink } from '@/pipeline/lib/fetchLink'
+import { classifyApifyFailure, runActor } from '@/pipeline/providers/apify'
+import {
+  ACTOR_RUN_BOUNDS, DEFAULT_HASHTAG_ACTOR, hashtagActorSelectionIsDraft,
+  type HashtagActorCandidate,
+} from '@/config/actors'
+import { ACTOR_SMOKE_TEST_CAP, HARVEST_COST } from '@/config/limits'
 import type { ActorProfileItem, ActorProvider, PageFetcher, SerpProvider, SerpResult } from './types'
 
 // ------------------------------------------------------------ SERP: fixture
@@ -64,18 +70,31 @@ export function fixtureSerpProvider(): SerpProvider & { pageFetcher: PageFetcher
 // --------------------------------------------------------------- SERP: real
 
 /**
- * ════════════════════════════ WIRING POINT ════════════════════════════
- * Serper.dev (fallback: Google Programmable Search — queries are
- * provider-agnostic strings, Part XI). Wire here: POST https://google.serper.dev/search
- * with X-API-KEY, q, page; map data.organic[] -> SerpResult. Blocked on:
- *   1. SERPER_API_KEY in .env.local (serper.dev account, personal email/card)
- *   2. the query library shedding its DRAFT marker (Part XV.8 red-pen)
+ * ════════════════════════════ WIRED (A2-national) ════════════════════════════
+ * Serper.dev. POST https://google.serper.dev/search with X-API-KEY; map
+ * data.organic[] -> SerpResult. Fallback if it ever dies: Google Programmable
+ * Search — the queries are provider-agnostic strings by design (Part XI).
+ *
+ * The key travels in a HEADER, never a query string, for the same reason the
+ * Apify token does: query strings reach proxy logs and error messages, and a
+ * leaked key is a bill.
+ *
+ * Cost discipline: Part 4a pages to MAX_PAGES_PER_QUERY, and the adapter stops
+ * early on an empty page rather than paying for five pages of nothing. The
+ * ledger records the ESTIMATE for SERP (Serper bills per search against a
+ * prepaid balance and returns no per-call charge), which is why
+ * HARVEST_COST.serpPerQuery exists as canon rather than being read off a
+ * receipt the way Apify's usageTotalUsd is.
  * ═══════════════════════════════════════════════════════════════════════
  */
+const SERPER_ENDPOINT = 'https://google.serper.dev/search'
+
+type SerperOrganic = { title?: string; link?: string; snippet?: string }
+
 export function serperProvider(): SerpProvider & { pageFetcher: PageFetcher } {
   return {
     name: 'serp:serper',
-    async search(query: string): Promise<never> {
+    async search(query: string, page: number): Promise<SerpResult[]> {
       if (QUERY_LIBRARY_STATUS.startsWith('DRAFT')) {
         throw new PipelineHalt(
           'The query library (config/queries.ts) is still DRAFT — pending ratification (Part XV.8: ' +
@@ -83,7 +102,8 @@ export function serperProvider(): SerpProvider & { pageFetcher: PageFetcher } {
           'Fixture runs remain available: --provider=fixture.',
         )
       }
-      if (!process.env.SERPER_API_KEY?.trim()) {
+      const key = process.env.SERPER_API_KEY?.trim()
+      if (!key) {
         throw new PipelineHalt(
           `SERPER_API_KEY is not set — the real SERP provider cannot run (query was: ${query.slice(0, 60)}…).\n\n` +
           'To fix: create an account at serper.dev (free starter credits, then ~$1/1K searches),\n' +
@@ -91,10 +111,62 @@ export function serperProvider(): SerpProvider & { pageFetcher: PageFetcher } {
           'Fixture runs remain available meanwhile: --provider=fixture.',
         )
       }
-      throw new PipelineHalt(
-        'Serper HTTP wiring lands when the key exists to test against — this is the A3 wiring point ' +
-        '(pipeline/harvest/providers.ts, serperProvider).',
-      )
+
+      let res: Response
+      try {
+        res = await fetch(SERPER_ENDPOINT, {
+          method: 'POST',
+          headers: { 'X-API-KEY': key, 'content-type': 'application/json' },
+          body: JSON.stringify({ q: query, page }),
+        })
+      } catch (e) {
+        throw new PipelineHalt(
+          `Could not reach ${SERPER_ENDPOINT}: ${e instanceof Error ? e.message : String(e)}. ` +
+          'Nothing was charged. If this is a sandbox, the host may not be in the egress allowlist.',
+        )
+      }
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        // Reused deliberately despite the Apify-specific name: the tell it
+        // encodes is provider-agnostic and hard-won — a sandbox refusing to
+        // carry the request answers 403 exactly as a rejected key does, and
+        // reporting the first as the second sends the operator off to rotate a
+        // credential that was never implicated.
+        switch (classifyApifyFailure(res, body)) {
+          case 'egress':
+            throw new PipelineHalt(
+              `The environment refused the request to ${SERPER_ENDPOINT} (HTTP ${res.status}) — this is an ` +
+              'egress policy block, NOT a bad key. The host needs to be in the allowlist. Nothing was charged.',
+            )
+          case 'auth':
+            throw new PipelineHalt(
+              `Serper rejected the key (HTTP ${res.status}). Check SERPER_API_KEY against serper.dev → ` +
+              'API key. Nothing was charged.',
+            )
+          case 'credit':
+            throw new PipelineHalt(
+              'Serper reports the account is out of credit (HTTP 402). Top up at serper.dev, or run ' +
+              '--provider=fixture meanwhile. Nothing was charged.',
+            )
+          default:
+            if (res.status === 429) {
+              throw new PipelineHalt(
+                'Serper rate-limited the run (HTTP 429). Nothing is lost — wait and re-run; harvest ' +
+                'resumes from a fresh run and cross-run dedupe keeps the repeat cheap.',
+              )
+            }
+            throw new PipelineHalt(`Serper returned HTTP ${res.status}: ${body.slice(0, 300)}`)
+        }
+      }
+
+      const json = (await res.json()) as { organic?: SerperOrganic[] }
+      // A result with no link is unusable downstream (the adapter dedupes on
+      // URL and resolves the page), so it is dropped here rather than carried
+      // as an empty string that would collide with every other empty one.
+      return (json.organic ?? [])
+        .filter((o): o is SerperOrganic & { link: string } => typeof o.link === 'string' && o.link.length > 0)
+        .map((o) => ({ title: o.title ?? '', link: o.link, snippet: o.snippet ?? '' }))
     },
     pageFetcher: {
       name: 'pages:live',
@@ -147,8 +219,50 @@ export function fixtureActorProvider(): ActorProvider {
  * library shedding its DRAFT marker (Part XV.8).
  * ═══════════════════════════════════════════════════════════════════════
  */
-export function apifyActorProvider(): ActorProvider {
-  const halt = (what: string): never => {
+/**
+ * ═══════════════════════════ WIRED (A2-national) ═══════════════════════════
+ * The 4b hashtag-class actor, through the same runActor() client the ratified
+ * profile scraper uses — same Law 3 forbidden-key refusal, same run bounds,
+ * same receipt.
+ *
+ * TWO GATES, in this order:
+ *   1. the hashtag LIBRARY must be ratified (config/hashtags.ts)
+ *   2. the hashtag ACTOR SELECTION must be ratified (config/actors.ts), and
+ *      until it is, only the smoke door opens — Part 4b's "smoke-test with a
+ *      <= $2 run and show the operator results BEFORE any scale run".
+ *
+ * A hashtag scraper returns POSTS. The mapping below pulls the owner's
+ * username off each post and dedupes, because 4b's product is a handle feed;
+ * whatever profile data rides along is a bonus the smoke test measures rather
+ * than something the mapper may invent.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export type ApifyActorOpts = {
+  /** The one door open while the selection is DRAFT. Capped at $2. */
+  smokeTest?: boolean
+  candidate?: HashtagActorCandidate
+  /** Called with the raw items, for the smoke test's packet-quality report. */
+  onItems?: (items: Record<string, unknown>[]) => void
+  /** Called with Apify's own figure for what the run cost. */
+  onSpend?: (usd: number) => void
+}
+
+/** What a hashtag post looks like across the candidate actors, loosely. */
+type HashtagPost = {
+  ownerUsername?: string
+  ownerFullName?: string
+  ownerId?: string
+  caption?: string
+  likesCount?: number
+  commentsCount?: number
+  url?: string
+  timestamp?: string
+}
+
+export function apifyActorProvider(opts: ApifyActorOpts = {}): ActorProvider {
+  const candidate = opts.candidate ?? DEFAULT_HASHTAG_ACTOR
+
+  const gate = (what: string): void => {
     if (HASHTAG_LIBRARY_STATUS.startsWith('DRAFT')) {
       throw new PipelineHalt(
         'The hashtag library (config/hashtags.ts) is still DRAFT — pending ratification (Part XV.8). ' +
@@ -160,22 +274,77 @@ export function apifyActorProvider(): ActorProvider {
         `APIFY_TOKEN is not set — the real actor provider cannot run (${what}).\n\n` +
         'To fix: create an account at apify.com (small free credit, then ~$1-3/1K profiles),\n' +
         'and add to .env.local:\n\n  APIFY_TOKEN=apify_api_...\n\n' +
-        'Then the wiring flow is: pick a maintained no-login actor, smoke-test <= $2, show results, ' +
-        'and only then scale (Part 4b). Fixture runs remain available meanwhile: --provider=fixture.',
+        'Fixture runs remain available meanwhile: --provider=fixture.',
       )
     }
-    throw new PipelineHalt(
-      'Actor selection + smoke-test happen when the token exists — this is the A3 wiring point ' +
-      '(pipeline/harvest/providers.ts, apifyActorProvider).',
-    )
+    if (hashtagActorSelectionIsDraft() && !opts.smokeTest) {
+      throw new PipelineHalt(
+        'The HASHTAG actor selection (config/actors.ts) is DRAFT — no hashtag actor has passed its smoke ' +
+        'test yet, so a SCALE run refuses to spend (Part 4b: smoke-test with a <= $2 run and show the ' +
+        'operator results BEFORE any scale run).\n\nRun `npm run smoke:hashtag` first. Nothing was charged.',
+      )
+    }
   }
+
   return {
-    name: 'actor:apify',
-    async hashtagProfiles(): Promise<never> {
-      return halt('hashtag profiles')
+    name: `actor:${candidate.id}`,
+
+    async hashtagProfiles(tags: readonly string[], limit: number): Promise<ActorProfileItem[]> {
+      gate('hashtag profiles')
+      if (!tags.length) return []
+
+      const estimate = Math.max(0.05, tags.length * limit * HARVEST_COST.actorPerItem)
+      const cap = opts.smokeTest ? ACTOR_SMOKE_TEST_CAP : estimate * 4
+
+      const result = await runActor({
+        actorId: candidate.id,
+        input: candidate.buildInput(tags, limit),
+        token: process.env.APIFY_TOKEN!.trim(),
+        maxChargeUsd: cap,
+        timeoutSecs: ACTOR_RUN_BOUNDS.timeoutSecs,
+        memoryMbytes: ACTOR_RUN_BOUNDS.memoryMbytes,
+      })
+
+      opts.onItems?.(result.items)
+      opts.onSpend?.(result.usageUsd)
+
+      if (result.status !== 'SUCCEEDED' && !result.items.length) {
+        throw new PipelineHalt(
+          `Apify run ${result.runId} finished ${result.status} with no items. ` +
+          `Charged $${result.usageUsd.toFixed(4)} (recorded). Check apify.com/view/runs/${result.runId}.`,
+        )
+      }
+
+      // Posts -> one item per distinct owner. First post per owner wins, so the
+      // metrics that ride along belong to a real post rather than an average of
+      // several — an invented aggregate is exactly what Law 9's write
+      // discipline exists to keep out of the Observatory.
+      const byOwner = new Map<string, ActorProfileItem>()
+      for (const raw of result.items as HashtagPost[]) {
+        const username = typeof raw.ownerUsername === 'string' ? raw.ownerUsername.trim().toLowerCase() : ''
+        if (!username || byOwner.has(username)) continue
+        byOwner.set(username, {
+          username,
+          fullName: raw.ownerFullName ?? null,
+          // A hashtag post carries no bio and no follower count. Reporting
+          // null is the honest answer; the profile actor fills them in at
+          // enrich time, and that cost belongs in the projection.
+          biography: null,
+          followersCount: null,
+          postsLast30d: null,
+          engagementProxy: null,
+          externalUrl: null,
+          via: `hashtag ${tags.join(' ')}`,
+        })
+      }
+      return [...byOwner.values()]
     },
+
     async commenterProfiles(): Promise<never> {
-      return halt('commenter profiles')
+      throw new PipelineHalt(
+        'Commenter harvesting (4c) is gated on a seed list, which is ratified EMPTY (config/seeds.ts). ' +
+        'This is a permanent gate, not a wiring point.',
+      )
     },
   }
 }

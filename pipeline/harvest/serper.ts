@@ -42,20 +42,66 @@ async function run(params: AdapterParams): Promise<CandidateSeed[]> {
   const seeds: CandidateSeed[] = []
   const seenUrls = new Set<string>() // Part 4a: dedupe on result URL before fetching
 
+  // PER-QUERY YIELD, measured on every run rather than only in a pilot.
+  // The two-wave plan is designed around yield-per-query — wave two's variant
+  // expansion is supposed to come from wave one's measurements — and a number
+  // that is only collected when someone remembers to look is a number that
+  // will not exist when the decision needs it.
+  const stats: QueryStat[] = []
+
   for (const query of queries) {
+    const stat: QueryStat = { query, raw: 0, pages: 0, igProfiles: 0, nonIg: 0, dupeUrls: 0, handles: 0 }
     for (let page = 1; page <= MAX_PAGES_PER_QUERY; page++) {
       const results: SerpResult[] = await provider.search(query, page)
       if (!results.length) break // empty page ends pagination early
+      stat.pages++
+      stat.raw += results.length
       for (const hit of results) {
         const urlKey = normalizeLinkUrl(hit.link) ?? hit.link
-        if (seenUrls.has(urlKey)) continue
+        if (seenUrls.has(urlKey)) { stat.dupeUrls++; continue }
         seenUrls.add(urlKey)
+        if (isInstagramUrl(hit.link)) stat.igProfiles++
+        else stat.nonIg++
         const seed = await hitToSeed(hit, query, provider.pageFetcher)
-        if (seed) seeds.push(seed)
+        if (seed) {
+          seeds.push(seed)
+          if (seed.handle) stat.handles++
+        }
       }
     }
+    stats.push(stat)
   }
+
+  log('')
+  log('  per-query yield (raw · pages · IG-url · non-IG · url-dupes · handles):')
+  for (const st of stats) {
+    log(
+      `    ${String(st.raw).padStart(3)} · ${st.pages}p · ${String(st.igProfiles).padStart(2)} · ` +
+      `${String(st.nonIg).padStart(2)} · ${String(st.dupeUrls).padStart(2)} · ${String(st.handles).padStart(2)}   ` +
+      st.query.slice(0, 62),
+    )
+  }
+  const tot = stats.reduce((a, st) => ({
+    raw: a.raw + st.raw, ig: a.ig + st.igProfiles, non: a.non + st.nonIg,
+    dup: a.dup + st.dupeUrls, h: a.h + st.handles,
+  }), { raw: 0, ig: 0, non: 0, dup: 0, h: 0 })
+  log(
+    `  TOTAL raw ${tot.raw} · IG-url ${tot.ig} · non-IG ${tot.non} · url-dupes ${tot.dup} · handles ${tot.h}` +
+    `  =>  ${(tot.h / Math.max(1, queries.length)).toFixed(2)} handles/query, ` +
+    `${tot.raw ? ((tot.h / tot.raw) * 100).toFixed(1) : '0.0'}% of raw results yield a handle`,
+  )
   return seeds
+}
+
+/** One query's measured yield. Logged every run; see the note above. */
+type QueryStat = {
+  query: string
+  raw: number
+  pages: number
+  igProfiles: number
+  nonIg: number
+  dupeUrls: number
+  handles: number
 }
 
 async function hitToSeed(

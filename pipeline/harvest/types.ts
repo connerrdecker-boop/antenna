@@ -42,6 +42,14 @@ export type AdapterParams = {
   maxTags?: number
   limitPerTag?: number
   log?: (line: string) => void
+  /**
+   * An adapter whose provider returns a RECEIPT calls this with the actual
+   * charge. Serper bills prepaid per search and reports no per-call cost, so
+   * its run banks the estimate; an Apify actor reports usageTotalUsd, and
+   * banking an estimate over a receipt would make the Law 6 ledger disagree
+   * with the bill in the one direction nobody notices — under.
+   */
+  onSpend?: (usd: number) => void
 }
 
 export interface HarvestAdapter {

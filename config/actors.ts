@@ -119,3 +119,59 @@ export const FORBIDDEN_INPUT_KEYS = [
   'cookies', 'cookie', 'sessionid', 'sessionId', 'session', 'loginCookies',
   'username_password', 'password', 'authorization', 'auth', 'proxyPassword',
 ] as const
+
+/**
+ * ═══════ DRAFT — HASHTAG ACTOR SELECTION, UNVERIFIED UNTIL SMOKE-TESTED ═══════
+ * Part 4b again, for the 4b channel this time. The profile scraper above went
+ * through this exact sequence on 2026-08-29 and is ratified; the hashtag-class
+ * actor has not, so it starts where that one started.
+ *
+ * The DRAFT marker is load-bearing in the same way: every hashtag SCALE path
+ * refuses while it is set, and the one door left open is the smoke test,
+ * capped at ACTOR_SMOKE_TEST_CAP.
+ *
+ * WHAT THE SMOKE TEST HAS TO ANSWER HERE, beyond "does it run": a hashtag
+ * scraper returns POSTS, not profiles, so the interesting question is whether
+ * an owner USERNAME rides along with each post and how much profile data comes
+ * with it. If only usernames arrive, 4b becomes a handle feed that the profile
+ * actor must then enrich — which is a real cost the projection has to carry,
+ * not a detail.
+ * ═══════════════════════════════════════════════════════════════════════════
+ */
+export const HASHTAG_ACTOR_SELECTION_STATUS =
+  'DRAFT (A2-national) — candidate ids listed, none smoke-tested; scale runs refuse until ratified'
+
+/** True while no hashtag actor has passed its smoke test. Gates every scale run. */
+export function hashtagActorSelectionIsDraft(): boolean {
+  return HASHTAG_ACTOR_SELECTION_STATUS.startsWith('DRAFT')
+}
+
+export type HashtagActorCandidate = {
+  id: string
+  note: string
+  /** Tags arrive with the leading '#'; most actors want them without. */
+  buildInput: (tags: readonly string[], limit: number) => Record<string, unknown>
+}
+
+export const HASHTAG_ACTOR_CANDIDATES: readonly HashtagActorCandidate[] = [
+  {
+    id: 'apify~instagram-hashtag-scraper',
+    note: 'Apify-official hashtag scraper. Takes bare tags; returns posts carrying ownerUsername.',
+    buildInput: (tags, limit) => ({
+      hashtags: tags.map((t) => t.replace(/^#/, '')),
+      resultsLimit: limit,
+    }),
+  },
+  {
+    id: 'apify~instagram-scraper',
+    note: 'Apify-official general IG scraper in hashtag search mode. Fallback if the hashtag actor is retired.',
+    buildInput: (tags, limit) => ({
+      search: tags.map((t) => t.replace(/^#/, '')).join(' '),
+      searchType: 'hashtag',
+      resultsType: 'posts',
+      resultsLimit: limit,
+    }),
+  },
+]
+
+export const DEFAULT_HASHTAG_ACTOR = HASHTAG_ACTOR_CANDIDATES[0]
