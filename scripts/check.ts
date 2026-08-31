@@ -1413,6 +1413,20 @@ section('20. zero-cost triage — the filter before the first paid call')
     /notes NOT LIKE/.test(pipeSrc))
   assert('triage reads only handle and name (no field that costs money to obtain)',
     /triageKill\(c\.handle, c\.name\)/.test(pipeSrc))
+
+  // THE EMPTY-BIO RE-ENRICH LOOP (found in wave one, fixed).
+  // An actor that returns a profile with an empty biography writes bio = ''
+  // — not null. The bootstrap step tests `!c.bio?.trim()`, which is TRUE for
+  // an empty string, so it re-fetched the handle on every run; the pre-score
+  // step tests `(c.bio?.trim() || c.link_domain?.trim())`, which is FALSE, so
+  // it skipped the row forever. The result was a paid actor call per pipeline
+  // run that could never move the candidate forward, plus an observation row
+  // each time. Caught in the act: one handle had four observations.
+  assert('bootstrap enrichment never re-enriches an already-enriched row',
+    /!c\.last_enriched/.test(pipeSrc),
+    'the last_enriched guard is what stops the empty-bio loop')
+  assert("an empty-string bio is falsy in both filters (the shape that looped)",
+    !''.trim() && !(('' as string).trim() || ('' as string).trim()))
 }
 
 section('19. eligibility gate — minors are ineligible, before any paid call')

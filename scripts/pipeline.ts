@@ -36,6 +36,7 @@ type Row = {
   pre_score: number | null
   name: string | null
   notes: string | null
+  last_enriched: string | null
 }
 
 /** A row already killed at triage carries its reason; it never re-enters. */
@@ -60,7 +61,8 @@ async function main() {
   const pending = (): Row[] =>
     sqlite
       .prepare(
-        `SELECT id, handle, bio, follower_count, link_domain, link_contents, pre_score, name, notes
+        `SELECT id, handle, bio, follower_count, link_domain, link_contents, pre_score, name, notes,
+                last_enriched
          FROM candidates WHERE status = 'sourced' AND score_failed = 0 ORDER BY id LIMIT ?`,
       )
       .all(limit) as Row[]
@@ -110,7 +112,19 @@ async function main() {
   //    (the fixture) is passed through untouched and the loop behaves exactly
   //    as it did before.
   console.log('\n[1/4] bootstrap enrich (candidates with no profile data yet)')
-  const bootstrapRows = pending().filter((c) => !triagedAlready(c.notes) && !c.bio?.trim() && !c.link_domain?.trim())
+  // ALREADY-ENRICHED ROWS ARE NEVER RE-ENRICHED. Without the last_enriched
+  // guard this loops forever on a specific shape, and it costs real money each
+  // time round: an actor that returns a profile with an EMPTY biography writes
+  // bio = '' — not null — so `!c.bio?.trim()` is still true and this step
+  // re-fetches the handle, while the pre-score step's
+  // `(c.bio?.trim() || c.link_domain?.trim())` is false and skips it forever.
+  // Wave one caught it in the act: @forceonaturedesigns accumulated FOUR
+  // observations and @coachingironmindset three, one per pipeline run, each a
+  // paid actor call that could never move the row forward. The provider has
+  // already been asked; asking again returns the same empty bio.
+  const bootstrapRows = pending().filter(
+    (c) => !triagedAlready(c.notes) && !c.last_enriched && !c.bio?.trim() && !c.link_domain?.trim(),
+  )
   const batch = await prefetch(provider, bootstrapRows.map((c) => c.handle))
   if (batch.batched) {
     console.log(`  batched: one ${provider.name} run for ${bootstrapRows.length} handle(s) — ${batch.fetched} packet(s) returned`)
