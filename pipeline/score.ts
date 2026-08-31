@@ -287,9 +287,25 @@ export async function scoreCandidate(
   const now = new Date().toISOString()
   if (!result.ok) {
     // Part 6.2: one retry happened inside callJson; flag for manual review.
+    //
+    // AND KEEP THE EVIDENCE. Flagging alone made every occurrence
+    // undiagnosable: the raw output was discarded, so the only way to see what
+    // the model actually returned was to pay for the call again — and the
+    // failure is intermittent (a profile that fails twice parses cleanly on a
+    // later attempt), so re-running usually shows nothing. Wave one flagged 7
+    // of 226; without the raw there is no way to tell a truncation at
+    // max_tokens from a quoting fault mid-string, and those want opposite
+    // fixes. The raw is capped because it lands in a row the UI renders.
+    const excerpt = result.raw.length > 600 ? `${result.raw.slice(0, 600)}…[truncated]` : result.raw
     sqlite
-      .prepare('UPDATE candidates SET score_failed = 1, updated_at = ? WHERE id = ?')
-      .run(now, candidate.id)
+      .prepare('UPDATE candidates SET score_failed = 1, evidence = ?, updated_at = ? WHERE id = ?')
+      .run(
+        JSON.stringify([
+          `SCORE FAILED after one retry — ${result.error}`,
+          `raw model output (${result.raw.length} chars): ${excerpt}`,
+        ]),
+        now, candidate.id,
+      )
     return { ok: false, error: result.error }
   }
 
